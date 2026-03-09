@@ -4,57 +4,82 @@ This file defines module contracts only (no implementation). Each section specif
 
 ---
 
-## 1) Config (defaults/limits)
+## 1) Config (`src/core/config.js`)
 
 ### Purpose
-Single source of static defaults, limits, and named constants used across modules.
+Canonical source of static defaults, limits, and enums used across modules.
+`CONFIG` is deep-frozen and must never be mutated at runtime.
 
 ### Inputs / outputs
 - **Inputs:** none at runtime (static data).
-- **Outputs:** immutable config objects (defaults, min/max ranges, enums).
+- **Outputs:** immutable `CONFIG` object (`defaults`, `limits`, `enums`, static UI constants).
 
 ### Public API (signatures)
-- `getConfig(): AppConfig`
-- `getLimits(): LimitsConfig`
-- `getBuildInfo(): BuildInfo`
+- `CONFIG: AppConfig`
+- `deepFreeze<T>(value: T): T`
+- `deepClone<T>(value: T): T`
 
 ### Events emitted / consumed
 - **Emits:** none.
 - **Consumes:** none.
 
 ### State owned
-- **Owns:** static constants/version metadata.
-- **Does NOT own:** mutable preferences, runtime session state.
+- **Owns:** canonical defaults/limits and config enums.
+- **Does NOT own:** user-mutable preferences or resolved runtime settings.
 
 ---
 
-## 2) Preferences (mutations + validation)
+## 2) Preferences (`src/core/preferences.js`)
 
 ### Purpose
-Store user-mutable settings with validation against Config limits.
+Store mutable user-selected values only.
+`preferences` is initialized from `CONFIG.defaults` and can be patched/reset.
 
 ### Inputs / outputs
 - **Inputs:** user setting mutation intents.
-- **Outputs:** validated preference state; validation results/errors.
+- **Outputs:** mutable preference state + resolved runtime settings.
 
 ### Public API (signatures)
-- `createPreferencesStore(config: AppConfig): PreferencesStore`
-- `getPreferences(): PreferencesState`
-- `setPreference<Key extends keyof PreferencesState>(key: Key, value: PreferencesState[Key]): ValidationResult`
-- `applyPatch(patch: Partial<PreferencesState>): ValidationResult`
-- `resetToDefaults(): PreferencesState`
+- `preferences: PreferencesState`
+- `runtime: { settings: RuntimeSettings }`
+- `setPreferences(nextPreferences: PreferencesState): RuntimeSettings`
+- `patchPreferences(patch: Partial<PreferencesState>): RuntimeSettings`
+- `resetPreferences(): RuntimeSettings`
+- `resolveRuntimeSettings(): RuntimeSettings`
 
 ### Events emitted / consumed
-- **Emits:** `preferencesChanged`, `preferencesValidationFailed`.
-- **Consumes:** `uiPreferenceMutationRequested`, `presetApplied`.
+- **Emits:** none in this scaffold layer.
+- **Consumes:** none in this scaffold layer.
 
 ### State owned
-- **Owns:** mutable user preferences.
-- **Does NOT own:** derived runtime frame settings, transport/playback state.
+- **Owns:** mutable `preferences` and `runtime.settings` container.
+- **Does NOT own:** audio/sim/renderer behavior.
 
 ---
 
-## 3) Presets (URL encode/decode)
+## 3) Validation / Sanitization (`src/core/validate.js`)
+
+### Purpose
+Normalize candidate preference values, clamp numeric values to limits, enforce invariants, and produce safe runtime settings.
+
+### Inputs / outputs
+- **Inputs:** unknown preference-like input object.
+- **Outputs:** fully sanitized settings object safe for runtime consumption.
+
+### Public API (signatures)
+- `sanitizePreferences(input: unknown): RuntimeSettings`
+
+### Events emitted / consumed
+- **Emits:** none.
+- **Consumes:** none.
+
+### State owned
+- **Owns:** no mutable state.
+- **Does NOT own:** canonical config, user preference storage.
+
+---
+
+## 4) Presets (URL encode/decode)
 
 ### Purpose
 Encode/decode preset-worthy settings for URL/state sharing.
@@ -78,7 +103,7 @@ Encode/decode preset-worthy settings for URL/state sharing.
 
 ---
 
-## 4) AudioEngine (file playback + analysis taps)
+## 5) AudioEngine (file playback + analysis taps)
 
 ### Purpose
 Manage source playback and expose analysis tap frames + transport timing.
@@ -108,7 +133,7 @@ Manage source playback and expose analysis tap frames + transport timing.
 
 ---
 
-## 5) BandBank (256 bands, dominant band)
+## 6) BandBank (256 bands, dominant band)
 
 ### Purpose
 Convert analysis frames to canonical 256-band representation and dominant-band summary.
@@ -133,7 +158,7 @@ Convert analysis frames to canonical 256-band representation and dominant-band s
 
 ---
 
-## 6) Sim (orbs + trails)
+## 7) Sim (orbs + trails)
 
 ### Purpose
 Advance simulation state (orbs/trails) from band input and timing.
@@ -158,7 +183,7 @@ Advance simulation state (orbs/trails) from band input and timing.
 
 ---
 
-## 7) Renderer (canvas draw)
+## 8) Renderer (canvas draw)
 
 ### Purpose
 Render `SimFrame` to canvas deterministically using runtime render settings.
@@ -184,7 +209,7 @@ Render `SimFrame` to canvas deterministically using runtime render settings.
 
 ---
 
-## 8) UI (panels, controls, bindings)
+## 9) UI (panels, controls, bindings)
 
 ### Purpose
 Bind user inputs to intents and project domain state into controls/panels.
@@ -210,7 +235,7 @@ Bind user inputs to intents and project domain state into controls/panels.
 
 ---
 
-## 9) Playlist (queue semantics)
+## 10) Playlist (queue semantics)
 
 ### Purpose
 Own queue ordering and next/prev semantics (including Build 112 constraints).
@@ -237,7 +262,7 @@ Own queue ordering and next/prev semantics (including Build 112 constraints).
 
 ---
 
-## 10) Scrubber (waveform overview + seek)
+## 11) Scrubber (waveform overview + seek)
 
 ### Purpose
 Expose scrub UI model (position/duration/overview) and convert seeks to time commands.
@@ -264,7 +289,7 @@ Expose scrub UI model (position/duration/overview) and convert seeks to time com
 
 ---
 
-## 11) Recording (capture/export)
+## 12) Recording (capture/export)
 
 ### Purpose
 Manage capture lifecycle and export artifacts for Build 113 recording.
@@ -290,7 +315,7 @@ Manage capture lifecycle and export artifacts for Build 113 recording.
 
 ---
 
-## 12) App (boot + loop + wiring)
+## 13) App (boot + loop + wiring)
 
 ### Purpose
 Compose modules, enforce lifecycle order, and run/cancel main update loop.
@@ -334,3 +359,19 @@ Compose modules, enforce lifecycle order, and run/cancel main update loop.
 - Sim does not own camera/render surface handles.
 - Playlist does not own decoder/playback objects.
 - Recording does not own transport policy.
+
+---
+
+## Configuration Layering Notes
+
+- `CONFIG` is canonical immutable truth.
+- `preferences` is mutable user-selected state and is not consumed directly by runtime systems.
+- `runtime.settings` is resolved via `sanitizePreferences` and is the only settings object runtime modules should consume.
+
+### Explicitly out of scope in this step
+
+- Audio behavior/graph logic
+- Simulation behavior
+- Renderer draw logic
+- Preset encoding/URL behavior changes
+- UI behavior changes

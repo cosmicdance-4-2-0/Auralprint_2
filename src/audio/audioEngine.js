@@ -15,7 +15,12 @@ const AUDIO_STATUS = Object.freeze({
 });
 
 function createEmptyChannelFrame(fftSize) {
-  return { waveform: new Float32Array(fftSize), rms: 0, energy01: 0 };
+  return {
+    waveform: new Float32Array(fftSize),
+    spectrumDb: new Float32Array(Math.floor(fftSize * 0.5)),
+    rms: 0,
+    energy01: 0,
+  };
 }
 
 function computeRms(waveform) {
@@ -279,6 +284,8 @@ export function createAudioEngine({ onStatusChange } = {}) {
   function sampleAnalysisFrame() {
     if (!state.leftAnalyser || !state.rightAnalyser || !state.centerAnalyser) {
       return {
+        sampleRateHz: state.context?.sampleRate ?? 0,
+        fftSize: state.fftSize,
         channels: {
           [CHANNEL_IDS.LEFT]: createEmptyChannelFrame(state.fftSize),
           [CHANNEL_IDS.RIGHT]: createEmptyChannelFrame(state.fftSize),
@@ -291,10 +298,16 @@ export function createAudioEngine({ onStatusChange } = {}) {
     const leftWaveform = new Float32Array(state.leftAnalyser.fftSize);
     const rightWaveform = new Float32Array(state.rightAnalyser.fftSize);
     const centerWaveform = new Float32Array(state.centerAnalyser.fftSize);
+    const leftSpectrumDb = new Float32Array(state.leftAnalyser.frequencyBinCount);
+    const rightSpectrumDb = new Float32Array(state.rightAnalyser.frequencyBinCount);
+    const centerSpectrumDb = new Float32Array(state.centerAnalyser.frequencyBinCount);
 
     state.leftAnalyser.getFloatTimeDomainData(leftWaveform);
     state.rightAnalyser.getFloatTimeDomainData(rightWaveform);
     state.centerAnalyser.getFloatTimeDomainData(centerWaveform);
+    state.leftAnalyser.getFloatFrequencyData(leftSpectrumDb);
+    state.rightAnalyser.getFloatFrequencyData(rightSpectrumDb);
+    state.centerAnalyser.getFloatFrequencyData(centerSpectrumDb);
 
     const leftRms = computeRms(leftWaveform);
     const rightRms = computeRms(rightWaveform);
@@ -307,10 +320,27 @@ export function createAudioEngine({ onStatusChange } = {}) {
     state.monoIsh = { isMonoIsh, correlation, rightEffectivelySilent };
 
     return {
+      sampleRateHz: state.context?.sampleRate ?? 0,
+      fftSize: state.leftAnalyser.fftSize,
       channels: {
-        [CHANNEL_IDS.LEFT]: { waveform: leftWaveform, rms: leftRms, energy01: clamp01(leftRms * state.rmsGain) },
-        [CHANNEL_IDS.RIGHT]: { waveform: rightWaveform, rms: rightRms, energy01: clamp01(rightRms * state.rmsGain) },
-        [CHANNEL_IDS.CENTER]: { waveform: centerWaveform, rms: centerRms, energy01: clamp01(centerRms * state.rmsGain) },
+        [CHANNEL_IDS.LEFT]: {
+          waveform: leftWaveform,
+          spectrumDb: leftSpectrumDb,
+          rms: leftRms,
+          energy01: clamp01(leftRms * state.rmsGain),
+        },
+        [CHANNEL_IDS.RIGHT]: {
+          waveform: rightWaveform,
+          spectrumDb: rightSpectrumDb,
+          rms: rightRms,
+          energy01: clamp01(rightRms * state.rmsGain),
+        },
+        [CHANNEL_IDS.CENTER]: {
+          waveform: centerWaveform,
+          spectrumDb: centerSpectrumDb,
+          rms: centerRms,
+          energy01: clamp01(centerRms * state.rmsGain),
+        },
       },
       monoIsh: { ...state.monoIsh },
     };

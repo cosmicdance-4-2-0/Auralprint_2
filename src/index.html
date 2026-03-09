@@ -14,7 +14,17 @@
         <!-- Structural placeholder: future spectral HUD table binding target -->
         <section id="band-hud-table-region" class="panel-section">
           <h2>Band HUD</h2>
-          <div id="band-hud-table-placeholder">Band table placeholder</div>
+          <div id="band-hud-dominant-line" aria-live="polite">Dominant: (none)</div>
+          <table id="band-hud-table" aria-label="Band energy table">
+            <thead>
+              <tr>
+                <th scope="col">Band</th>
+                <th scope="col">Range</th>
+                <th scope="col">Energy</th>
+              </tr>
+            </thead>
+            <tbody id="band-hud-table-body"></tbody>
+          </table>
         </section>
         <!-- Structural placeholder: future 256-band analyzer rendering target -->
         <section id="spectrum-256-region" class="panel-section">
@@ -59,7 +69,7 @@
         <!-- Structural placeholder: status summaries and diagnostics -->
         <h2>Status</h2>
         <div id="live-status-readout-region">Live status readout placeholder</div>
-        <div id="analysis-summary-region">Analysis summary placeholder</div>
+        <div id="analysis-summary-region">Dominant: (none)</div>
         <div id="input-legend-region">Keyboard / mouse / touch legend placeholder</div>
         <div id="preset-actions-row">
           <button id="preset-share-link-button" type="button">Share Link</button>

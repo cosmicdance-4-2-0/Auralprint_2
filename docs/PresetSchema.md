@@ -33,11 +33,12 @@ This document defines the URL hash preset payload for user preference sharing.
 
 ## Rules
 
-1. `schema` is required and must be an integer.
-2. Unknown or unsupported schema versions are rejected.
-3. Decode always sanitizes `preferences` via `sanitizePreferences` before applying.
-4. Presets include user-facing preferences only.
-5. Presets **must not** include runtime-only state:
+1. `schema` is preferred and must be an integer when present.
+2. Decode supports legacy Build 111 payloads that omitted the wrapper object and migrates them before apply.
+3. Unknown or unsupported schema versions are rejected.
+4. Decode always sanitizes `preferences` via `sanitizePreferences` before applying.
+5. Presets include user-facing preferences only.
+6. Presets **must not** include runtime-only state:
    - playlist contents
    - recording session state/chunks
    - live input permissions

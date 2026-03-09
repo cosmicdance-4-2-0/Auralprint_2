@@ -14,7 +14,19 @@
         <!-- Structural placeholder: future spectral HUD table binding target -->
         <section id="band-hud-table-region" class="panel-section">
           <h2>Band HUD</h2>
-          <div id="band-hud-table-placeholder">Band table placeholder</div>
+          <div id="band-hud-dominant" aria-live="polite">Dominant: (none)</div>
+          <div id="band-hud-meta">Band metadata pending…</div>
+          <table id="band-hud-table" aria-label="Dominant spectral bands">
+            <thead>
+              <tr>
+                <th scope="col">#</th>
+                <th scope="col">Band</th>
+                <th scope="col">Range</th>
+                <th scope="col">Energy</th>
+              </tr>
+            </thead>
+            <tbody id="band-hud-table-body"></tbody>
+          </table>
         </section>
         <!-- Structural placeholder: future 256-band analyzer rendering target -->
         <section id="spectrum-256-region" class="panel-section">

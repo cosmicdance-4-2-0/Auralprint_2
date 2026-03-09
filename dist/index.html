@@ -3,14 +3,126 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Auralprint Build 113 (Hosted)</title>
+    <title>Auralprint UI Shell</title>
+    <link rel="stylesheet" href="./ui/styles.css" />
   </head>
   <body>
-    <main>
-      <h1>Auralprint</h1>
-      <p>Build 113 scaffold (hosted mode).</p>
-      <p id="app-status">Bootstrapping...</p>
-    </main>
+    <div id="app-shell">
+      <canvas id="render-surface-canvas" aria-label="Primary visualization canvas"></canvas>
+
+      <header id="spectral-hud-panel" class="panel">
+        <!-- Structural placeholder: future spectral HUD table binding target -->
+        <section id="band-hud-table-region" class="panel-section">
+          <h2>Band HUD</h2>
+          <div id="band-hud-dominant" aria-live="polite">Dominant: (none)</div>
+          <div id="band-hud-meta">Band metadata pending…</div>
+          <table id="band-hud-table" aria-label="Dominant spectral bands">
+            <thead>
+              <tr>
+                <th scope="col">#</th>
+                <th scope="col">Band</th>
+                <th scope="col">Range</th>
+                <th scope="col">Energy</th>
+              </tr>
+            </thead>
+            <tbody id="band-hud-table-body"></tbody>
+          </table>
+        </section>
+        <!-- Structural placeholder: future 256-band analyzer rendering target -->
+        <section id="spectrum-256-region" class="panel-section">
+          <h2>256-Band Spectrum</h2>
+          <canvas id="spectrum-256-canvas" aria-label="256-band spectrum analyzer"></canvas>
+        </section>
+      </header>
+
+      <aside id="simulation-controls-panel" class="panel">
+        <h2>Simulation Controls</h2>
+        <section id="trace-controls-group" class="panel-section"><h3>Trace</h3></section>
+        <section id="particles-controls-group" class="panel-section"><h3>Particles</h3></section>
+        <section id="motion-controls-group" class="panel-section"><h3>Motion</h3></section>
+        <section id="audio-analysis-controls-group" class="panel-section"><h3>Audio analysis</h3></section>
+      </aside>
+
+      <aside id="render-camera-channel-panel" class="panel">
+        <!-- Structural placeholder: render/camera/channel controls contract only -->
+        <h2>Render & Camera</h2>
+        <section id="render-controls-group" class="panel-section"><h3>Render controls</h3></section>
+        <section id="camera-controls-group" class="panel-section"><h3>Camera controls</h3></section>
+        <section id="channel-controls-group" class="panel-section"><h3>Channel controls</h3></section>
+        <section id="band-controls-group" class="panel-section"><h3>Band controls</h3></section>
+        <section id="color-controls-group" class="panel-section"><h3>Color controls</h3></section>
+      </aside>
+
+      <aside id="playlist-panel" class="panel">
+        <h2>Playlist</h2>
+        <div id="playlist-actions-row">
+          <button id="playlist-shuffle-toggle" type="button">Shuffle</button>
+          <button id="playlist-clear-button" type="button">Clear</button>
+        </div>
+        <ul id="queue-list-region" aria-label="Playback queue">
+          <li class="queue-item" id="queue-item-template">
+            <button class="queue-jump-target" type="button">Track placeholder</button>
+            <button class="queue-item-remove" type="button" aria-label="Remove queue item">✕</button>
+          </li>
+        </ul>
+      </aside>
+
+      <section id="status-panel" class="panel">
+        <!-- Structural placeholder: status summaries and diagnostics -->
+        <h2>Status</h2>
+        <div id="live-status-readout-region">Live status readout placeholder</div>
+        <div id="analysis-summary-region">Analysis summary placeholder</div>
+        <div id="input-legend-region">Keyboard / mouse / touch legend placeholder</div>
+        <div id="preset-actions-row">
+          <button id="preset-share-link-button" type="button">Share Link</button>
+          <button id="preset-apply-url-button" type="button">Apply URL</button>
+          <button id="preset-reset-prefs-button" type="button">Reset Prefs</button>
+        </div>
+        <div id="preset-debug-line" aria-live="polite">Preset Debug: idle</div>
+      </section>
+
+      <section id="scrubber-panel" class="panel">
+        <div id="scrubber-main-row">
+          <canvas id="waveform-scrubber-canvas" aria-label="Waveform scrubber"></canvas>
+          <div id="scrubber-time-display" aria-live="polite">00:00 / 00:00</div>
+        </div>
+        <!-- Structural placeholder: recording control surface only, no behavior implemented -->
+        <div id="recording-controls-row">
+          <button id="record-start-button" type="button">Record start</button>
+          <button id="record-stop-button" type="button">Record stop</button>
+          <a id="record-download-action" href="#" download>Download</a>
+          <span id="recording-status-text-region" aria-live="polite">Recording status: idle</span>
+        </div>
+      </section>
+
+      <section id="audio-control-panel" class="panel">
+        <div id="audio-controls-row">
+          <button id="audio-load-button" type="button">Load</button>
+          <button id="audio-prev-button" type="button">Prev</button>
+          <button id="audio-play-pause-button" type="button">Play / Pause</button>
+          <button id="audio-stop-button" type="button">Stop</button>
+          <button id="audio-next-button" type="button">Next</button>
+          <button id="audio-queue-toggle" type="button">Queue</button>
+          <button id="audio-loop-toggle" type="button">Loop</button>
+          <button id="audio-mute-toggle" type="button">Mute</button>
+          <label id="volume-slider-label" for="audio-volume-slider">Volume</label>
+          <input id="audio-volume-slider" type="range" min="0" max="100" value="100" />
+          <span id="audio-status-text-region" aria-live="polite">Audio status: idle</span>
+        </div>
+      </section>
+
+      <!-- Structural placeholder: launcher system for restoring hidden panels -->
+      <nav id="panel-launcher-strip" aria-label="Panel launchers">
+        <button class="panel-launcher" data-panel-target="spectral-hud-panel" type="button">Show Spectral HUD</button>
+        <button class="panel-launcher" data-panel-target="simulation-controls-panel" type="button">Show Simulation</button>
+        <button class="panel-launcher" data-panel-target="render-camera-channel-panel" type="button">Show Render/Camera</button>
+        <button class="panel-launcher" data-panel-target="playlist-panel" type="button">Show Playlist</button>
+        <button class="panel-launcher" data-panel-target="status-panel" type="button">Show Status</button>
+        <button class="panel-launcher" data-panel-target="scrubber-panel" type="button">Show Scrubber</button>
+        <button class="panel-launcher" data-panel-target="audio-control-panel" type="button">Show Audio Controls</button>
+      </nav>
+    </div>
+
     <script type="module" src="./main.js"></script>
   </body>
 </html>

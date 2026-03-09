@@ -11,6 +11,9 @@ import {
 } from './presets/urlPreset.js';
 import { preferences, resetPreferences, runtime, setPreferences } from './core/preferences.js';
 import { createAudioEngine } from './audio/audioEngine.js';
+import { createBandBank } from './bands/bandBank.js';
+import { createBandHudPresenter } from './ui/bands/bandHudPresenter.js';
+import { createStatusViewModel } from './ui/status/statusViewModel.js';
 
 const appLifecycle = createAppLifecycle();
 const bootstrapResult = bootstrapApplication({ appLifecycle });
@@ -81,14 +84,61 @@ function wirePresetButtons() {
 function wireAudioControls() {
   const ui = getUIElements(document);
   const audioSettings = runtime.settings.audio;
+  const bandSettings = runtime.settings.bands;
+  const statusViewModel = createStatusViewModel();
+  const bandBank = createBandBank({ sourceChannelId: 'C' });
+  const hudPresenter = createBandHudPresenter({
+    panelElement: ui.spectralHudPanel,
+    dominantElement: ui.bandHudDominant,
+    metaElement: ui.bandHudMeta,
+    tableBodyElement: ui.bandHudTableBody,
+  });
+
+  bandBank.configure({
+    floorHz: bandSettings.floorHz,
+    ceilingHz: bandSettings.ceilingHz,
+    logSpacing: bandSettings.logSpacing,
+  });
+
+  let analysisRafId = 0;
+
+  function renderStatus() {
+    const state = statusViewModel.getState();
+    if (ui.audioStatusTextRegion) ui.audioStatusTextRegion.textContent = state.audioStatusText;
+    if (ui.liveStatusReadoutRegion) ui.liveStatusReadoutRegion.textContent = state.liveStatusText;
+    if (ui.analysisSummaryRegion) ui.analysisSummaryRegion.textContent = state.analysisSummaryText;
+  }
 
   const engine = createAudioEngine({
     onStatusChange(status) {
-      if (ui.audioStatusTextRegion) {
-        ui.audioStatusTextRegion.textContent = `Audio status: ${status}`;
-      }
+      statusViewModel.setAudioStatus(status);
+      renderStatus();
     },
   });
+
+  function runAnalysisLoop() {
+    const analysisInfo = engine.getAnalysisInfo();
+    if (analysisInfo.sampleRate > 0) {
+      const analysisFrame = engine.sampleAnalysisFrame();
+      const snapshot = bandBank.updateFromAnalysisFrame(analysisFrame, {
+        sampleRate: analysisInfo.sampleRate,
+        fftSize: analysisInfo.fftSize,
+      });
+
+      hudPresenter.ingest(snapshot);
+      const renderedSnapshot = hudPresenter.render(performance.now());
+      if (renderedSnapshot) {
+        statusViewModel.setDominantBand(renderedSnapshot.dominant);
+        statusViewModel.setMonoIsh(analysisFrame.monoIsh);
+        renderStatus();
+      }
+    }
+
+    analysisRafId = requestAnimationFrame(runAnalysisLoop);
+  }
+
+  renderStatus();
+  analysisRafId = requestAnimationFrame(runAnalysisLoop);
 
   engine.setAnalysisConfig({
     fftSize: audioSettings.fftSize,
@@ -166,6 +216,7 @@ function wireAudioControls() {
   });
 
   window.addEventListener('beforeunload', () => {
+    cancelAnimationFrame(analysisRafId);
     void engine.dispose();
     fileInput.remove();
   });

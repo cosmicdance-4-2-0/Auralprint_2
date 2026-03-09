@@ -9,11 +9,13 @@ import {
   readCurrentHash,
   writeHash,
 } from './presets/urlPreset.js';
-import { preferences, resetPreferences, runtime, setPreferences } from './core/preferences.js';
+import { patchPreferences, preferences, resetPreferences, runtime, setPreferences } from './core/preferences.js';
 import { createAudioEngine } from './audio/audioEngine.js';
+import { wireSimulationControls } from './ui/controls/wireSimulationControls.js';
 
 const appLifecycle = createAppLifecycle();
 const bootstrapResult = bootstrapApplication({ appLifecycle });
+const ui = getUIElements(document);
 
 const appStatusElement = document.getElementById('app-status');
 if (appStatusElement) {
@@ -28,6 +30,37 @@ function createPresetDebugUpdater(debugElement) {
   };
 }
 
+function applyLiveSettings({ audioEngine, analysisEngine, visualizationEngine }) {
+  const settings = runtime.settings;
+
+  audioEngine.setAnalysisConfig({
+    fftSize: settings.audio.fftSize,
+    smoothingTimeConstant: settings.audio.smoothingTimeConstant,
+    rmsGain: settings.audio.rmsGain,
+  });
+
+  audioEngine.setPlaybackLoop(settings.audio.loop);
+  audioEngine.setPlaybackMuted(settings.audio.muted);
+  audioEngine.setPlaybackVolume(settings.audio.volume);
+
+  analysisEngine.configure({
+    audio: settings.audio,
+    bands: settings.bands,
+  });
+
+  visualizationEngine.configure({
+    trace: settings.trace,
+    particles: settings.particles,
+    motion: settings.motion,
+    bands: settings.bands,
+    visuals: settings.visuals,
+  });
+
+  if (ui.renderSurfaceCanvas) {
+    ui.renderSurfaceCanvas.style.background = settings.visuals.backgroundColor;
+  }
+}
+
 async function handleShareLink(updateDebug) {
   const hash = encodePreferencesToHash(preferences);
   writeHash(hash);
@@ -37,7 +70,7 @@ async function handleShareLink(updateDebug) {
   updateDebug(copied ? 'share link copied to clipboard.' : 'hash updated; clipboard unavailable.');
 }
 
-function handleApplyUrl(updateDebug) {
+function handleApplyUrl(updateDebug, applyAll) {
   const result = decodePreferencesFromHash(readCurrentHash());
   if (!result.ok) {
     updateDebug(`apply failed: ${result.reason}`);
@@ -45,16 +78,17 @@ function handleApplyUrl(updateDebug) {
   }
 
   setPreferences(result.preferences);
+  applyAll();
   updateDebug(`applied schema v1 preset (${result.reason.toLowerCase()}).`);
 }
 
-function handleResetPrefs(updateDebug) {
+function handleResetPrefs(updateDebug, applyAll) {
   resetPreferences();
+  applyAll();
   updateDebug('preferences reset to defaults.');
 }
 
-function wirePresetButtons() {
-  const ui = getUIElements(document);
+function wirePresetButtons(applyAll) {
   const updateDebug = createPresetDebugUpdater(ui.presetDebugLine);
 
   if (ui.presetShareLinkButton) {
@@ -65,52 +99,37 @@ function wirePresetButtons() {
 
   if (ui.presetApplyUrlButton) {
     ui.presetApplyUrlButton.addEventListener('click', () => {
-      handleApplyUrl(updateDebug);
+      handleApplyUrl(updateDebug, applyAll);
     });
   }
 
   if (ui.presetResetPrefsButton) {
     ui.presetResetPrefsButton.addEventListener('click', () => {
-      handleResetPrefs(updateDebug);
+      handleResetPrefs(updateDebug, applyAll);
     });
   }
 
   updateDebug('ready.');
 }
 
-function wireAudioControls() {
-  const ui = getUIElements(document);
+function wireAudioControls(audioEngine, applyAll) {
   const audioSettings = runtime.settings.audio;
 
-  const engine = createAudioEngine({
-    onStatusChange(status) {
-      if (ui.audioStatusTextRegion) {
-        ui.audioStatusTextRegion.textContent = `Audio status: ${status}`;
-      }
-    },
-  });
-
-  engine.setAnalysisConfig({
-    fftSize: audioSettings.fftSize,
-    smoothingTimeConstant: audioSettings.smoothingTimeConstant,
-    rmsGain: audioSettings.rmsGain,
-  });
-
   if (ui.audioLoopToggle) {
-    engine.setPlaybackLoop(audioSettings.loop);
     ui.audioLoopToggle.addEventListener('click', () => {
-      const next = !engine.getPlaybackState().loop;
-      engine.setPlaybackLoop(next);
+      const next = !runtime.settings.audio.loop;
+      patchPreferences({ audio: { loop: next } });
+      applyAll();
       ui.audioLoopToggle.setAttribute('aria-pressed', String(next));
     });
     ui.audioLoopToggle.setAttribute('aria-pressed', String(audioSettings.loop));
   }
 
   if (ui.audioMuteToggle) {
-    engine.setPlaybackMuted(audioSettings.muted);
     ui.audioMuteToggle.addEventListener('click', () => {
-      const next = !engine.getPlaybackState().muted;
-      engine.setPlaybackMuted(next);
+      const next = !runtime.settings.audio.muted;
+      patchPreferences({ audio: { muted: next } });
+      applyAll();
       ui.audioMuteToggle.setAttribute('aria-pressed', String(next));
     });
     ui.audioMuteToggle.setAttribute('aria-pressed', String(audioSettings.muted));
@@ -118,10 +137,10 @@ function wireAudioControls() {
 
   if (ui.audioVolumeSlider) {
     ui.audioVolumeSlider.value = String(Math.round(audioSettings.volume * 100));
-    engine.setPlaybackVolume(audioSettings.volume);
     ui.audioVolumeSlider.addEventListener('input', () => {
       const value01 = Number(ui.audioVolumeSlider.value) / 100;
-      engine.setPlaybackVolume(value01);
+      patchPreferences({ audio: { volume: value01 } });
+      applyAll();
     });
   }
 
@@ -139,9 +158,9 @@ function wireAudioControls() {
     const file = fileInput.files?.[0];
     if (!file) return;
 
-    engine.loadFile(file);
+    audioEngine.loadFile(file);
     try {
-      await engine.play();
+      await audioEngine.play();
     } catch {
       // Browser autoplay rules may block immediate playback; the file still remains loaded.
     }
@@ -150,26 +169,51 @@ function wireAudioControls() {
   });
 
   ui.audioPlayPauseButton?.addEventListener('click', async () => {
-    const playbackState = engine.getPlaybackState();
+    const playbackState = audioEngine.getPlaybackState();
     if (!playbackState.hasSource) return;
 
     if (playbackState.status === 'playing') {
-      engine.pause();
+      audioEngine.pause();
       return;
     }
 
-    await engine.play();
+    await audioEngine.play();
   });
 
   ui.audioStopButton?.addEventListener('click', () => {
-    engine.stop();
+    audioEngine.stop();
   });
 
   window.addEventListener('beforeunload', () => {
-    void engine.dispose();
+    void audioEngine.dispose();
     fileInput.remove();
   });
 }
 
-wirePresetButtons();
-wireAudioControls();
+const audioEngine = createAudioEngine({
+  onStatusChange(status) {
+    if (ui.audioStatusTextRegion) {
+      ui.audioStatusTextRegion.textContent = `Audio status: ${status}`;
+    }
+  },
+});
+
+const { analysisEngine, visualizationEngine } = bootstrapResult.modules;
+
+const applyAll = () => {
+  applyLiveSettings({
+    audioEngine,
+    analysisEngine,
+    visualizationEngine,
+  });
+};
+
+wirePresetButtons(applyAll);
+wireAudioControls(audioEngine, applyAll);
+wireSimulationControls({
+  ui,
+  onSettingsApplied() {
+    applyAll();
+  },
+});
+applyAll();

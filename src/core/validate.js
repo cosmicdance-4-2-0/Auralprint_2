@@ -16,6 +16,11 @@ function normalizeEnum(value, allowed, fallback) {
   return typeof value === 'string' && allowed.includes(value) ? value : fallback;
 }
 
+
+function normalizeBoolean(value, fallback) {
+  return typeof value === 'boolean' ? value : fallback;
+}
+
 function normalizeColorHex(value, fallback) {
   if (typeof value !== 'string') return fallback;
   const normalized = value.trim();
@@ -68,6 +73,22 @@ export function sanitizePreferences(input) {
   const limits = CONFIG.limits;
 
   const sanitized = deepClone(defaults);
+
+
+  const uiInput = isPlainObject(candidate.ui) ? candidate.ui : {};
+  const uiPanelsInput = isPlainObject(uiInput.panels) ? uiInput.panels : {};
+  sanitized.ui.panels.spectralHudPanelVisible = normalizeBoolean(
+    uiPanelsInput.spectralHudPanelVisible,
+    defaults.ui.panels.spectralHudPanelVisible,
+  );
+  sanitized.ui.panels.simulationControlsPanelVisible = normalizeBoolean(
+    uiPanelsInput.simulationControlsPanelVisible,
+    defaults.ui.panels.simulationControlsPanelVisible,
+  );
+  sanitized.ui.panels.audioControlPanelVisible = normalizeBoolean(
+    uiPanelsInput.audioControlPanelVisible,
+    defaults.ui.panels.audioControlPanelVisible,
+  );
 
   const visualsInput = isPlainObject(candidate.visuals) ? candidate.visuals : {};
   sanitized.visuals.backgroundColor = normalizeColorHex(visualsInput.backgroundColor, defaults.visuals.backgroundColor);

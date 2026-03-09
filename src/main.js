@@ -80,14 +80,14 @@ function handleApplyUrl(updateDebug, applyAll) {
 
   setPreferences(result.preferences);
   panelsViewModel.syncFromPreferences();
-  applyAll();
-  updateDebug(`applied schema v1 preset (${result.reason.toLowerCase()}).`);
+  applyAll({ resetAnalysis: true, resetVisualization: true });
+  updateDebug(`applied preset (${result.reason.toLowerCase()}).`);
 }
 
 function handleResetPrefs(updateDebug, applyAll) {
   resetPreferences();
   panelsViewModel.syncFromPreferences();
-  applyAll();
+  applyAll({ resetAnalysis: true, resetVisualization: true });
   updateDebug('preferences reset to defaults.');
 }
 
@@ -281,12 +281,20 @@ function tickHudFromAnalysis() {
   renderStatusPanels();
 }
 
-const applyAll = () => {
+const applyAll = ({ resetAnalysis = false, resetVisualization = false } = {}) => {
   applyLiveSettings({
     audioEngine,
     analysisEngine,
     visualizationEngine,
   });
+
+  if (resetAnalysis) {
+    analysisEngine.reset();
+  }
+
+  if (resetVisualization) {
+    visualizationEngine.reset();
+  }
 };
 
 wirePresetButtons(applyAll);

@@ -42,8 +42,14 @@ export function createAnalysisEngine() {
     return state.latestFrame;
   }
 
+  function reset() {
+    state.latestFrame = null;
+    bandBank.reset();
+  }
+
   return {
     configure,
+    reset,
     start() {},
     stop() {},
     consumeAudioFrame,

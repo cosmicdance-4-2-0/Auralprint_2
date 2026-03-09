@@ -3,6 +3,8 @@ import { sanitizePreferences } from '../core/validate.js';
 
 export const PRESET_SCHEMA_VERSION = 1;
 
+const LEGACY_SCHEMA_VERSION = 0;
+
 function toBase64Url(bytes: Uint8Array): string {
   let binary = '';
   for (const byte of bytes) {
@@ -45,19 +47,42 @@ export function decodePreferencesFromHash(hash: string): { ok: boolean; preferen
     const raw = new TextDecoder().decode(bytes);
     const payload = JSON.parse(raw);
 
-    if (!payload || !Number.isInteger(payload.schema)) {
-      return { ok: false, preferences: null, reason: 'Preset schema is missing.' };
+    const migrated = migratePayloadToCurrentSchema(payload);
+    if (!migrated.ok) {
+      return { ok: false, preferences: null, reason: migrated.reason };
     }
 
-    if (payload.schema !== PRESET_SCHEMA_VERSION) {
-      return { ok: false, preferences: null, reason: `Unsupported schema v${payload.schema}.` };
-    }
-
-    const sanitizedPreferences = sanitizePreferences(payload.preferences);
-    return { ok: true, preferences: sanitizedPreferences, reason: 'Preset decoded.' };
+    const sanitizedPreferences = sanitizePreferences(migrated.preferences);
+    return { ok: true, preferences: sanitizedPreferences, reason: migrated.reason };
   } catch {
     return { ok: false, preferences: null, reason: 'Preset payload is invalid.' };
   }
+}
+
+
+function migratePayloadToCurrentSchema(payload: unknown): { ok: boolean; preferences: unknown; reason: string } {
+  if (!payload || typeof payload !== 'object') {
+    return { ok: false, preferences: null, reason: 'Preset payload is invalid.' };
+  }
+
+  const schema = (payload as { schema?: unknown }).schema;
+
+  if (!Number.isInteger(schema)) {
+    // Build 111 compatibility path: hash payloads that encoded preferences directly.
+    return { ok: true, preferences: payload, reason: 'Preset migrated from legacy schema.' };
+  }
+
+  const parsed = payload as { schema: number; preferences?: unknown };
+
+  if (parsed.schema === PRESET_SCHEMA_VERSION) {
+    return { ok: true, preferences: parsed.preferences, reason: 'Preset decoded.' };
+  }
+
+  if (parsed.schema === LEGACY_SCHEMA_VERSION) {
+    return { ok: true, preferences: parsed.preferences, reason: 'Preset migrated from legacy schema.' };
+  }
+
+  return { ok: false, preferences: null, reason: `Unsupported schema v${parsed.schema}.` };
 }
 
 export function readCurrentHash(): string {

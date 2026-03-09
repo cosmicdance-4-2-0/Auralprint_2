@@ -145,9 +145,15 @@ export function createBandBank({ sourceChannelId = 'C' } = {}) {
     };
   }
 
+  function reset() {
+    state.energies01.fill(0);
+    state.dominant = { index: 0, name: state.names[0] ?? 'Band 0', hzRangeText: '' };
+  }
+
   return {
     configure,
     updateFromAnalysisFrame,
     getSnapshot,
+    reset,
   };
 }

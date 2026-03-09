@@ -1,6 +1,6 @@
-/** Public interface stub for user-visible system status projection. */
+/** User-visible system status projection. */
 export function createStatusViewModel() {
-  const state = {
+  let state = {
     audioStatus: 'idle',
     simPaused: false,
     resetCount: 0,
@@ -11,40 +11,68 @@ export function createStatusViewModel() {
     },
   };
 
+  const listeners = new Set();
+
+  function getState() {
+    const dom = state.dominantBand;
+    const dominantBandText = `Dominant: [${dom.index}] ${dom.name}${dom.hzRangeText ? ` — ${dom.hzRangeText}` : ''}`;
+    return {
+      statusText: `Audio: ${state.audioStatus} | Sim: ${state.simPaused ? 'paused' : 'running'} | Resets: ${state.resetCount}`,
+      dominantBandText,
+      audioStatus: state.audioStatus,
+      simPaused: state.simPaused,
+      resetCount: state.resetCount,
+      dominantBand: { ...dom },
+    };
+  }
+
+  function emitChange() {
+    const snapshot = getState();
+    for (const listener of listeners) {
+      listener(snapshot);
+    }
+  }
+
   function setAudioStatus(status) {
-    state.audioStatus = status || 'idle';
+    state = {
+      ...state,
+      audioStatus: status || 'idle',
+    };
+    emitChange();
   }
 
   function setSimulationStatus(simulation = {}) {
-    state.simPaused = Boolean(simulation.simPaused);
-    state.resetCount = Number.isFinite(simulation.resetCount) ? simulation.resetCount : state.resetCount;
+    state = {
+      ...state,
+      simPaused: Boolean(simulation.simPaused),
+      resetCount: Number.isFinite(simulation.resetCount) ? simulation.resetCount : state.resetCount,
+    };
+    emitChange();
   }
 
   function setDominantBand(dominant) {
     if (!dominant) return;
 
-    state.dominantBand = {
-      index: Number.isFinite(dominant.index) ? dominant.index : 0,
-      name: dominant.name || '(none)',
-      hzRangeText: dominant.hzRangeText || '',
+    state = {
+      ...state,
+      dominantBand: {
+        index: Number.isFinite(dominant.index) ? dominant.index : 0,
+        name: dominant.name || '(none)',
+        hzRangeText: dominant.hzRangeText || '',
+      },
     };
+    emitChange();
   }
 
   return {
     setAudioStatus,
     setSimulationStatus,
     setDominantBand,
-    getState() {
-      const dom = state.dominantBand;
-      const dominantBandText = `Dominant: [${dom.index}] ${dom.name}${dom.hzRangeText ? ` — ${dom.hzRangeText}` : ''}`;
-      return {
-        statusText: `Audio: ${state.audioStatus} | Sim: ${state.simPaused ? 'paused' : 'running'} | Resets: ${state.resetCount}`,
-        dominantBandText,
-        audioStatus: state.audioStatus,
-        simPaused: state.simPaused,
-        resetCount: state.resetCount,
-        dominantBand: { ...dom },
-      };
-    }
+    getState,
+    subscribe(listener) {
+      listeners.add(listener);
+      listener(getState());
+      return () => listeners.delete(listener);
+    },
   };
 }

@@ -60,29 +60,30 @@ Cross-cutting:
 
 Required primary flow:
 
-`UI -> Preferences -> Runtime Settings -> Audio -> Bands -> Sim -> Renderer -> Recording`
+`UI -> Preferences -> Runtime Settings -> AudioEngine -> AnalysisEngine(BandBank) -> VisualizationEngine(Sim+Renderer) -> Recording`
 
 Expanded with concrete modules:
 
 1. **UI** emits user intent (`changeSetting`, `play`, `seek`, `startRecording`).
 2. **Preferences** validates and stores mutable user-facing settings.
 3. **Runtime Settings** materializes an immutable snapshot for deterministic frame processing.
-4. **AudioEngine** produces audio timing, playback state, and analysis tap frames.
-5. **BandBank** maps analysis output into 256 canonical bands + dominant-band summary.
-6. **Sim** advances orb/trail state from band data + timing.
-7. **Renderer** draws sim state to canvas.
-8. **Recording** captures renderer output (and optional audio path) and exports artifacts.
+4. **AudioEngine** produces transport status and raw analysis tap frames.
+5. **AnalysisEngine** orchestrates AudioEngine sampling and BandBank projection into canonical dominant-band snapshots.
+6. **VisualizationEngine** orchestrates Sim step + Renderer draw for each analyzed frame.
+7. **Recording** captures renderer output (and optional audio path) and exports artifacts.
 
 ## Ownership boundaries (high-level)
 
 - UI owns no domain truth; it projects and dispatches intent.
 - Preferences owns mutable setting state; runtime settings are derived snapshots.
 - AudioEngine owns playback/analysis runtime connection, not UI state.
-- BandBank owns spectral aggregation policy, not playback lifecycle.
+- AnalysisEngine owns analyzer orchestration + BandBank composition.
+- VisualizationEngine owns Sim+Renderer orchestration per frame.
 - Sim owns world state evolution, not pixel rendering.
 - Renderer owns draw execution, not simulation rules.
 - Recording owns capture lifecycle and artifact cleanup, not source transport.
-- App owns composition, lifecycle ordering, and loop orchestration.
+- Controls/Panels/Status view models own UI state projection from domain snapshots.
+- App + Lifecycle own composition, call ordering, and loop orchestration.
 
 ## Future extension points
 
@@ -118,7 +119,16 @@ Compatibility rule:
 
 ## Lifecycle checkpoints
 
-- Boot order: `Config -> Preferences -> App wiring -> UI bindings -> Audio init (lazy) -> loop start`.
+- Boot order: `Config -> Preferences -> bootstrapApplication -> bind UI/view-models -> bind AudioEngine to AnalysisEngine -> bind canvas to VisualizationEngine -> apply runtime settings -> start engines -> start lifecycle frame loop`.
 - Track/source switch: reset scrubber/sim transient state where defined; prevent stale analyzers.
 - Recording stop/unload: stop recorder, release streams, revoke object URLs.
 - App teardown: detach listeners, cancel animation loop, release audio/capture resources.
+
+
+## Canonical frame call order (Build 113 finalized)
+
+1. `appLifecycle.startFrameLoop` triggers `runFrame` on the HUD interval.
+2. `analysisEngine.tick()` samples AudioEngine and updates BandBank snapshot.
+3. `statusViewModel` projects dominant-band + lifecycle simulation state.
+4. `visualizationEngine.tick({ analysisFrame })` advances Sim and draws Renderer output.
+5. HUD/panel presenters project view-model state to DOM.

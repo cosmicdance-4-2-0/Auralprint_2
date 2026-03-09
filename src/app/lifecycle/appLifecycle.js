@@ -23,6 +23,7 @@ export function createAppLifecycle() {
       resetCount: 0,
       lastResetAtMs: null,
     },
+    loopIntervalId: null,
   };
 
   function start() {
@@ -30,7 +31,24 @@ export function createAppLifecycle() {
   }
 
   function stop() {
+    if (state.loopIntervalId !== null) {
+      window.clearInterval(state.loopIntervalId);
+      state.loopIntervalId = null;
+    }
     state.phase = 'stopped';
+  }
+
+  function startFrameLoop({ onFrame, intervalMs }) {
+    if (typeof onFrame !== 'function') return;
+
+    if (state.loopIntervalId !== null) {
+      window.clearInterval(state.loopIntervalId);
+      state.loopIntervalId = null;
+    }
+
+    state.loopIntervalId = window.setInterval(() => {
+      onFrame();
+    }, intervalMs);
   }
 
   function toggleSimulationPaused() {
@@ -86,6 +104,7 @@ export function createAppLifecycle() {
   return {
     start,
     stop,
+    startFrameLoop,
     getState,
     requestSimulationReset,
     toggleSimulationPaused,

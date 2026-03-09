@@ -54,6 +54,14 @@ const configDefinition = {
   },
 
   defaults: {
+    ui: {
+      panels: {
+        spectralHudPanelVisible: true,
+        simulationControlsPanelVisible: true,
+        audioControlPanelVisible: true,
+      },
+    },
+
     visuals: {
       backgroundColor: '#000000',
       particleColor: '#ffffff',

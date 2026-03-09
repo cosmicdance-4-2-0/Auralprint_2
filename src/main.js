@@ -79,12 +79,14 @@ function handleApplyUrl(updateDebug, applyAll) {
   }
 
   setPreferences(result.preferences);
+  panelsViewModel.syncFromPreferences();
   applyAll();
   updateDebug(`applied schema v1 preset (${result.reason.toLowerCase()}).`);
 }
 
 function handleResetPrefs(updateDebug, applyAll) {
   resetPreferences();
+  panelsViewModel.syncFromPreferences();
   applyAll();
   updateDebug('preferences reset to defaults.');
 }
@@ -191,7 +193,7 @@ function wireAudioControls(audioEngine, applyAll) {
   });
 }
 
-const { analysisEngine, visualizationEngine, statusViewModel } = bootstrapResult.modules;
+const { analysisEngine, visualizationEngine, statusViewModel, panelsViewModel } = bootstrapResult.modules;
 
 const audioEngine = createAudioEngine({
   onStatusChange(status) {
@@ -206,6 +208,57 @@ const bandHudPresenter = createBandHudPresenter({
   tableBodyElement: ui.bandHudTableBody,
   dominantElement: ui.bandHudDominantLine,
 });
+
+
+function renderPanelVisibility(panelState) {
+  const visibilityById = panelState.panelVisibility;
+
+  const panels = [
+    ui.spectralHudPanel,
+    ui.simulationControlsPanel,
+    ui.audioControlPanel,
+  ].filter(Boolean);
+
+  panels.forEach((panelElement) => {
+    const isVisible = visibilityById[panelElement.id] !== false;
+    panelElement.hidden = !isVisible;
+    panelElement.setAttribute('aria-hidden', String(!isVisible));
+  });
+
+  if (ui.panelLaunchers?.length) {
+    ui.panelLaunchers.forEach((launcher) => {
+      const targetId = launcher.dataset.panelTarget;
+      if (!targetId) return;
+
+      const targetVisibility = visibilityById[targetId];
+      const shouldShowLauncher = targetVisibility === false;
+      launcher.hidden = !shouldShowLauncher;
+      launcher.setAttribute('aria-hidden', String(!shouldShowLauncher));
+    });
+  }
+
+  if (ui.panelLauncherStrip) {
+    const hasVisibleLauncher = ui.panelLaunchers?.some((launcher) => !launcher.hidden);
+    ui.panelLauncherStrip.hidden = !hasVisibleLauncher;
+    ui.panelLauncherStrip.setAttribute('aria-hidden', String(!hasVisibleLauncher));
+  }
+}
+
+function wirePanels() {
+  panelsViewModel.subscribe(renderPanelVisibility);
+
+  if (ui.panelLaunchers?.length) {
+    ui.panelLaunchers.forEach((launcher) => {
+      launcher.addEventListener('click', () => {
+        const targetId = launcher.dataset.panelTarget;
+        if (!targetId) return;
+        panelsViewModel.setPanelVisibility(targetId, true);
+      });
+    });
+  }
+
+  panelsViewModel.wireKeyboardShortcuts(window);
+}
 
 function renderStatusPanels() {
   const state = statusViewModel.getState();
@@ -238,6 +291,7 @@ const applyAll = () => {
 
 wirePresetButtons(applyAll);
 wireAudioControls(audioEngine, applyAll);
+wirePanels();
 wireSimulationControls({
   ui,
   onSettingsApplied() {

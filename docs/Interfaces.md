@@ -156,6 +156,11 @@ Convert analysis frames to canonical 256-band representation and dominant-band s
 - **Owns:** latest normalized band frame + aggregation buffers.
 - **Does NOT own:** simulation entities, renderer draw state.
 
+### Contract invariants
+- Band-bank definition rebuild must run whenever mapping assumptions change:
+  - always on `audio.fftSize` change,
+  - and on band-definition changes (`count`, `floorHz`, `ceilingHz`, `logSpacing`) when definition-change rebuild is requested by the caller.
+
 ---
 
 ## 7) Sim (orbs + trails)
@@ -375,3 +380,22 @@ Compose modules, enforce lifecycle order, and run/cancel main update loop.
 - Renderer draw logic
 - Preset encoding/URL behavior changes
 - UI behavior changes
+
+---
+
+## 11) AppActions (application-level event entry points)
+
+### Purpose
+Provide explicit top-level action handlers that apply preferences and enforce sim reset policy consistently.
+
+### Public API (signatures)
+- `onAudioLoaded(): void`
+- `onPrefsApplied(reason: string, options?: { rebuildBandsOnDefinitionChange?: boolean, resetOrbs?: boolean, resetTrails?: boolean }): void`
+- `onHashApplied(reason: string): void`
+- `onStop(): void`
+
+### Sim reset policy contract
+- `onAudioLoaded` applies prefs and resets trails only.
+- `onPrefsApplied` applies prefs and performs only requested resets (`resetOrbs`, `resetTrails`).
+- `onHashApplied` is a fresh baseline and resets both orbs and trails.
+- `onStop` is transport-only and does not reset sim state.

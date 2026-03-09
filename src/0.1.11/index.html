@@ -2130,6 +2130,7 @@ const UI = (() => {
   function applyPrefs(reason, options = {}) {
     const { rebuildBandsOnDefinitionChange = false } = options;
     const prevBandDefKey = BandBankController.readBandDefKey(runtime.settings);
+    const prevFftSize = runtime.settings.audio.fftSize;
 
     preferences.particles.sizeMinPx = Math.min(preferences.particles.sizeMinPx, preferences.particles.sizeMaxPx);
     preferences.particles.ttlSec = Math.max(preferences.particles.ttlSec, preferences.particles.sizeToMinSec);
@@ -2138,7 +2139,9 @@ const UI = (() => {
 
     BandBankController.syncFromSettings();
     const bandDefinitionChanged = BandBankController.readBandDefKey(runtime.settings) !== prevBandDefKey;
-    if (rebuildBandsOnDefinitionChange && bandDefinitionChanged) {
+    const fftSizeChanged = runtime.settings.audio.fftSize !== prevFftSize;
+    const shouldRebuildBands = bandDefinitionChanged && rebuildBandsOnDefinitionChange;
+    if (shouldRebuildBands || fftSizeChanged) {
       BandBankController.rebuildNow();
     }
 
@@ -2150,18 +2153,18 @@ const UI = (() => {
   }
 
   function resetOrbsToDesignedPhases() {
-    for (const orb of state.orbs) {
-      orb.resetPhase();
-      orb.resetTrail();
-    }
-    state.bands.ringPhaseRad = state.orbs.length ? state.orbs[0].angleRad : 0;
+    orbSystem.reset();
+    trailSystem.reset();
   }
 
   function resetPrefs() {
     preferences = deepClone(CONFIG.defaults);
-    applyPrefs("prefs reset", { rebuildBandsOnDefinitionChange: true });
     initOrbs();
-    resetOrbsToDesignedPhases();
+    AppActions.onPrefsApplied("prefs reset", {
+      rebuildBandsOnDefinitionChange: true,
+      resetOrbs: true,
+      resetTrails: true,
+    });
   }
 
   async function shareLink() {
@@ -2178,9 +2181,8 @@ const UI = (() => {
   function applyUrlNow() {
     const ok = UrlPreset.applyFromLocationHash();
     if (ok) {
-      applyPrefs("applied URL preset", { rebuildBandsOnDefinitionChange: true });
       initOrbs();
-      resetOrbsToDesignedPhases();
+      AppActions.onHashApplied("applied URL preset");
     } else {
       ui.simStatus.textContent = "No valid preset in URL hash.";
     }
@@ -2559,14 +2561,11 @@ const UI = (() => {
       const file = ui.fileInput.files && ui.fileInput.files[0];
       if (!file) return;
       const ok = await AudioEngine.loadFile(file);
-      if (ok) {
-        applyPrefs("audio loaded");
-        for (const orb of state.orbs) orb.resetTrail();
-      }
+      if (ok) AppActions.onAudioLoaded();
     });
 
     ui.btnPlay.addEventListener("click", async () => { await AudioEngine.playPause(); });
-    ui.btnStop.addEventListener("click", () => { AudioEngine.stop(); });
+    ui.btnStop.addEventListener("click", () => { AppActions.onStop(); });
 
     ui.chkLoop.addEventListener("change", () => { preferences.audio.loop = !!ui.chkLoop.checked; applyPrefs("loop"); });
     ui.chkMute.addEventListener("change", () => { preferences.audio.muted = !!ui.chkMute.checked; applyPrefs("mute"); });
@@ -2652,9 +2651,8 @@ const UI = (() => {
     window.addEventListener("hashchange", () => {
       const ok = UrlPreset.applyFromLocationHash();
       if (ok) {
-        applyPrefs("hash preset loaded", { rebuildBandsOnDefinitionChange: true });
         initOrbs();
-        resetOrbsToDesignedPhases();
+        AppActions.onHashApplied("hash preset loaded");
       }
     });
   }
@@ -2669,6 +2667,53 @@ function initOrbs() {
   state.orbs.length = 0;
   for (const def of runtime.settings.orbs) state.orbs.push(new Orb(def));
 }
+
+const trailSystem = {
+  reset() {
+    for (const orb of state.orbs) orb.resetTrail();
+  },
+};
+
+const orbSystem = {
+  reset() {
+    for (const orb of state.orbs) orb.resetPhase();
+    state.bands.ringPhaseRad = state.orbs.length ? state.orbs[0].angleRad : 0;
+  },
+};
+
+const AppActions = {
+  onAudioLoaded() {
+    UI.applyPrefs("audio loaded");
+    // Policy: keep designed phase continuity, clear accumulated trail history.
+    trailSystem.reset();
+  },
+
+  onPrefsApplied(reason, options = {}) {
+    const {
+      rebuildBandsOnDefinitionChange = false,
+      resetOrbs = false,
+      resetTrails = false,
+    } = options;
+
+    UI.applyPrefs(reason, { rebuildBandsOnDefinitionChange });
+    if (resetOrbs) orbSystem.reset();
+    if (resetTrails) trailSystem.reset();
+  },
+
+  onHashApplied(reason) {
+    // Policy: hash-applied presets are a fresh sim baseline.
+    AppActions.onPrefsApplied(reason, {
+      rebuildBandsOnDefinitionChange: true,
+      resetOrbs: true,
+      resetTrails: true,
+    });
+  },
+
+  onStop() {
+    AudioEngine.stop();
+    // Policy: transport stop rewinds audio only; simulation continuity is preserved.
+  },
+};
 
 function getBandForOrb(orb, snapshot) {
   const channel = normalizeOrbChannelId(orb && orb.chanId, orb && orb.bandId);

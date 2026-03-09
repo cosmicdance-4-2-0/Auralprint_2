@@ -2,6 +2,8 @@
 export function createStatusViewModel() {
   const state = {
     audioStatus: 'idle',
+    simPaused: false,
+    resetCount: 0,
     dominantBand: {
       index: 0,
       name: '(none)',
@@ -11,6 +13,11 @@ export function createStatusViewModel() {
 
   function setAudioStatus(status) {
     state.audioStatus = status || 'idle';
+  }
+
+  function setSimulationStatus(simulation = {}) {
+    state.simPaused = Boolean(simulation.simPaused);
+    state.resetCount = Number.isFinite(simulation.resetCount) ? simulation.resetCount : state.resetCount;
   }
 
   function setDominantBand(dominant) {
@@ -25,14 +32,17 @@ export function createStatusViewModel() {
 
   return {
     setAudioStatus,
+    setSimulationStatus,
     setDominantBand,
     getState() {
       const dom = state.dominantBand;
       const dominantBandText = `Dominant: [${dom.index}] ${dom.name}${dom.hzRangeText ? ` — ${dom.hzRangeText}` : ''}`;
       return {
-        statusText: `Audio: ${state.audioStatus}`,
+        statusText: `Audio: ${state.audioStatus} | Sim: ${state.simPaused ? 'paused' : 'running'} | Resets: ${state.resetCount}`,
         dominantBandText,
         audioStatus: state.audioStatus,
+        simPaused: state.simPaused,
+        resetCount: state.resetCount,
         dominantBand: { ...dom },
       };
     }

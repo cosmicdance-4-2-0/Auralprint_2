@@ -257,7 +257,17 @@ function wirePanels() {
     });
   }
 
-  panelsViewModel.wireKeyboardShortcuts(window);
+}
+
+function syncSimulationStatusFromLifecycle() {
+  const lifecycleState = appLifecycle.getState();
+  statusViewModel.setSimulationStatus(lifecycleState.simulation);
+}
+
+function performSimulationReset() {
+  analysisEngine.reset();
+  visualizationEngine.reset();
+  renderStatusPanels();
 }
 
 function renderStatusPanels() {
@@ -307,5 +317,22 @@ wireSimulationControls({
   },
 });
 applyAll();
+syncSimulationStatusFromLifecycle();
 renderStatusPanels();
+
+appLifecycle.wireBaselineKeyboardShortcuts({
+  host: window,
+  scopeElement: ui.appShell,
+  onTogglePanels() {
+    panelsViewModel.toggleAllToggleablePanels();
+  },
+  onPauseToggle() {
+    syncSimulationStatusFromLifecycle();
+    renderStatusPanels();
+  },
+  onReset() {
+    syncSimulationStatusFromLifecycle();
+    performSimulationReset();
+  },
+});
 window.setInterval(tickHudFromAnalysis, bandHudPresenter.refreshIntervalMs);

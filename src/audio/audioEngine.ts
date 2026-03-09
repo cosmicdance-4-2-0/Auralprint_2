@@ -15,8 +15,7 @@ const AUDIO_STATUS = Object.freeze({
 });
 
 function createEmptyChannelFrame(fftSize) {
-  const frequencyBinCount = Math.max(1, Math.floor(fftSize * 0.5));
-  return { waveform: new Float32Array(fftSize), spectrumDb: new Float32Array(frequencyBinCount), rms: 0, energy01: 0 };
+  return { waveform: new Float32Array(fftSize), rms: 0, energy01: 0 };
 }
 
 function computeRms(waveform) {
@@ -286,23 +285,16 @@ export function createAudioEngine({ onStatusChange } = {}) {
           [CHANNEL_IDS.CENTER]: createEmptyChannelFrame(state.fftSize),
         },
         monoIsh: { ...state.monoIsh },
-        analysisMetadata: { sampleRate: state.context?.sampleRate ?? 0, fftSize: state.fftSize, dbMin: -100, dbMax: -30 },
       };
     }
 
     const leftWaveform = new Float32Array(state.leftAnalyser.fftSize);
     const rightWaveform = new Float32Array(state.rightAnalyser.fftSize);
     const centerWaveform = new Float32Array(state.centerAnalyser.fftSize);
-    const leftSpectrumDb = new Float32Array(state.leftAnalyser.frequencyBinCount);
-    const rightSpectrumDb = new Float32Array(state.rightAnalyser.frequencyBinCount);
-    const centerSpectrumDb = new Float32Array(state.centerAnalyser.frequencyBinCount);
 
     state.leftAnalyser.getFloatTimeDomainData(leftWaveform);
     state.rightAnalyser.getFloatTimeDomainData(rightWaveform);
     state.centerAnalyser.getFloatTimeDomainData(centerWaveform);
-    state.leftAnalyser.getFloatFrequencyData(leftSpectrumDb);
-    state.rightAnalyser.getFloatFrequencyData(rightSpectrumDb);
-    state.centerAnalyser.getFloatFrequencyData(centerSpectrumDb);
 
     const leftRms = computeRms(leftWaveform);
     const rightRms = computeRms(rightWaveform);
@@ -316,12 +308,11 @@ export function createAudioEngine({ onStatusChange } = {}) {
 
     return {
       channels: {
-        [CHANNEL_IDS.LEFT]: { waveform: leftWaveform, spectrumDb: leftSpectrumDb, rms: leftRms, energy01: clamp01(leftRms * state.rmsGain) },
-        [CHANNEL_IDS.RIGHT]: { waveform: rightWaveform, spectrumDb: rightSpectrumDb, rms: rightRms, energy01: clamp01(rightRms * state.rmsGain) },
-        [CHANNEL_IDS.CENTER]: { waveform: centerWaveform, spectrumDb: centerSpectrumDb, rms: centerRms, energy01: clamp01(centerRms * state.rmsGain) },
+        [CHANNEL_IDS.LEFT]: { waveform: leftWaveform, rms: leftRms, energy01: clamp01(leftRms * state.rmsGain) },
+        [CHANNEL_IDS.RIGHT]: { waveform: rightWaveform, rms: rightRms, energy01: clamp01(rightRms * state.rmsGain) },
+        [CHANNEL_IDS.CENTER]: { waveform: centerWaveform, rms: centerRms, energy01: clamp01(centerRms * state.rmsGain) },
       },
       monoIsh: { ...state.monoIsh },
-      analysisMetadata: { sampleRate: state.context?.sampleRate ?? 0, fftSize: state.leftAnalyser.fftSize, dbMin: state.leftAnalyser.minDecibels, dbMax: state.leftAnalyser.maxDecibels },
     };
   }
 
@@ -339,7 +330,6 @@ export function createAudioEngine({ onStatusChange } = {}) {
       currentTimeSeconds: state.mediaElement?.currentTime ?? 0,
       durationSeconds: state.mediaElement?.duration ?? 0,
       monoIsh: { ...state.monoIsh },
-      analysisMetadata: { sampleRate: state.context?.sampleRate ?? 0, fftSize: state.leftAnalyser.fftSize, dbMin: state.leftAnalyser.minDecibels, dbMax: state.leftAnalyser.maxDecibels },
     };
   }
 

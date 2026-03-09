@@ -12,8 +12,7 @@ const RUNTIME_PATHS = [
   'io',
   'ui',
   'shared',
-  'audio',
-  'bands'
+  'audio'
 ];
 
 async function copyRuntimeTree(targetDir) {

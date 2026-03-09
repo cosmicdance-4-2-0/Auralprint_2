@@ -1,0 +1,12 @@
+{
+  "name": "auralprint",
+  "version": "0.1.13",
+  "private": true,
+  "description": "Auralprint Build 113 scaffold",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "node scripts/build.mjs",
+    "package": "node scripts/package.mjs"
+  }
+}

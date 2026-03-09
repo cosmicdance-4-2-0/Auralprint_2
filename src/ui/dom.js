@@ -9,6 +9,8 @@ export const UI_ELEMENT_IDS = Object.freeze({
 
   spectralHudPanel: 'spectral-hud-panel',
   bandHudTableRegion: 'band-hud-table-region',
+  bandHudDominantLine: 'band-hud-dominant-line',
+  bandHudTableBody: 'band-hud-table-body',
   spectrum256Region: 'spectrum-256-region',
   spectrum256Canvas: 'spectrum-256-canvas',
 
@@ -70,6 +72,8 @@ export function getUIElements(root = document) {
 
     spectralHudPanel: root.getElementById(UI_ELEMENT_IDS.spectralHudPanel),
     bandHudTableRegion: root.getElementById(UI_ELEMENT_IDS.bandHudTableRegion),
+    bandHudDominantLine: root.getElementById(UI_ELEMENT_IDS.bandHudDominantLine),
+    bandHudTableBody: root.getElementById(UI_ELEMENT_IDS.bandHudTableBody),
     spectrum256Region: root.getElementById(UI_ELEMENT_IDS.spectrum256Region),
     spectrum256Canvas: root.getElementById(UI_ELEMENT_IDS.spectrum256Canvas),
 

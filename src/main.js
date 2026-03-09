@@ -12,6 +12,7 @@ import {
 import { patchPreferences, preferences, resetPreferences, runtime, setPreferences } from './core/preferences.js';
 import { createAudioEngine } from './audio/audioEngine.js';
 import { wireSimulationControls } from './ui/controls/wireSimulationControls.js';
+import { createBandHudPresenter } from './ui/hud/bandHudPresenter.js';
 
 const appLifecycle = createAppLifecycle();
 const bootstrapResult = bootstrapApplication({ appLifecycle });
@@ -190,15 +191,42 @@ function wireAudioControls(audioEngine, applyAll) {
   });
 }
 
+const { analysisEngine, visualizationEngine, statusViewModel } = bootstrapResult.modules;
+
 const audioEngine = createAudioEngine({
   onStatusChange(status) {
+    statusViewModel.setAudioStatus(status);
     if (ui.audioStatusTextRegion) {
       ui.audioStatusTextRegion.textContent = `Audio status: ${status}`;
     }
   },
 });
 
-const { analysisEngine, visualizationEngine } = bootstrapResult.modules;
+const bandHudPresenter = createBandHudPresenter({
+  tableBodyElement: ui.bandHudTableBody,
+  dominantElement: ui.bandHudDominantLine,
+});
+
+function renderStatusPanels() {
+  const state = statusViewModel.getState();
+  if (ui.liveStatusReadoutRegion) {
+    ui.liveStatusReadoutRegion.textContent = state.statusText;
+  }
+  if (ui.analysisSummaryRegion) {
+    ui.analysisSummaryRegion.textContent = state.dominantBandText;
+  }
+}
+
+function tickHudFromAnalysis() {
+  const analysisFrame = audioEngine.sampleAnalysisFrame();
+  const latestFrame = analysisEngine.consumeAudioFrame(analysisFrame);
+  const bandSnapshot = latestFrame?.bands;
+  if (bandSnapshot?.dominant) {
+    statusViewModel.setDominantBand(bandSnapshot.dominant);
+  }
+  bandHudPresenter.present(bandSnapshot);
+  renderStatusPanels();
+}
 
 const applyAll = () => {
   applyLiveSettings({
@@ -217,3 +245,5 @@ wireSimulationControls({
   },
 });
 applyAll();
+renderStatusPanels();
+window.setInterval(tickHudFromAnalysis, bandHudPresenter.refreshIntervalMs);

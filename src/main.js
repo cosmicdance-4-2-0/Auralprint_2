@@ -9,7 +9,8 @@ import {
   readCurrentHash,
   writeHash,
 } from './presets/urlPreset.js';
-import { preferences, resetPreferences, setPreferences } from './core/preferences.js';
+import { preferences, resetPreferences, runtime, setPreferences } from './core/preferences.js';
+import { createAudioEngine } from './audio/audioEngine.js';
 
 const appLifecycle = createAppLifecycle();
 const bootstrapResult = bootstrapApplication({ appLifecycle });
@@ -77,4 +78,98 @@ function wirePresetButtons() {
   updateDebug('ready.');
 }
 
+function wireAudioControls() {
+  const ui = getUIElements(document);
+  const audioSettings = runtime.settings.audio;
+
+  const engine = createAudioEngine({
+    onStatusChange(status) {
+      if (ui.audioStatusTextRegion) {
+        ui.audioStatusTextRegion.textContent = `Audio status: ${status}`;
+      }
+    },
+  });
+
+  engine.setAnalysisConfig({
+    fftSize: audioSettings.fftSize,
+    smoothingTimeConstant: audioSettings.smoothingTimeConstant,
+    rmsGain: audioSettings.rmsGain,
+  });
+
+  if (ui.audioLoopToggle) {
+    engine.setPlaybackLoop(audioSettings.loop);
+    ui.audioLoopToggle.addEventListener('click', () => {
+      const next = !engine.getPlaybackState().loop;
+      engine.setPlaybackLoop(next);
+      ui.audioLoopToggle.setAttribute('aria-pressed', String(next));
+    });
+    ui.audioLoopToggle.setAttribute('aria-pressed', String(audioSettings.loop));
+  }
+
+  if (ui.audioMuteToggle) {
+    engine.setPlaybackMuted(audioSettings.muted);
+    ui.audioMuteToggle.addEventListener('click', () => {
+      const next = !engine.getPlaybackState().muted;
+      engine.setPlaybackMuted(next);
+      ui.audioMuteToggle.setAttribute('aria-pressed', String(next));
+    });
+    ui.audioMuteToggle.setAttribute('aria-pressed', String(audioSettings.muted));
+  }
+
+  if (ui.audioVolumeSlider) {
+    ui.audioVolumeSlider.value = String(Math.round(audioSettings.volume * 100));
+    engine.setPlaybackVolume(audioSettings.volume);
+    ui.audioVolumeSlider.addEventListener('input', () => {
+      const value01 = Number(ui.audioVolumeSlider.value) / 100;
+      engine.setPlaybackVolume(value01);
+    });
+  }
+
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = 'audio/*';
+  fileInput.style.display = 'none';
+  document.body.append(fileInput);
+
+  ui.audioLoadButton?.addEventListener('click', () => {
+    fileInput.click();
+  });
+
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files?.[0];
+    if (!file) return;
+
+    engine.loadFile(file);
+    try {
+      await engine.play();
+    } catch {
+      // Browser autoplay rules may block immediate playback; the file still remains loaded.
+    }
+
+    fileInput.value = '';
+  });
+
+  ui.audioPlayPauseButton?.addEventListener('click', async () => {
+    const playbackState = engine.getPlaybackState();
+    if (!playbackState.hasSource) return;
+
+    if (playbackState.status === 'playing') {
+      engine.pause();
+      return;
+    }
+
+    await engine.play();
+  });
+
+  ui.audioStopButton?.addEventListener('click', () => {
+    engine.stop();
+  });
+
+  window.addEventListener('beforeunload', () => {
+    void engine.dispose();
+    fileInput.remove();
+  });
+}
+
 wirePresetButtons();
+wireAudioControls();

@@ -11,7 +11,8 @@ const RUNTIME_PATHS = [
   'domain',
   'io',
   'ui',
-  'shared'
+  'shared',
+  'audio'
 ];
 
 async function copyRuntimeTree(targetDir) {

@@ -55,6 +55,11 @@ export const UI_ELEMENT_IDS = Object.freeze({
   audioVolumeSlider: 'audio-volume-slider',
   audioStatusTextRegion: 'audio-status-text-region',
 
+
+  presetShareLinkButton: 'preset-share-link-button',
+  presetApplyUrlButton: 'preset-apply-url-button',
+  presetResetPrefsButton: 'preset-reset-prefs-button',
+  presetDebugLine: 'preset-debug-line',
   panelLauncherStrip: 'panel-launcher-strip'
 });
 
@@ -110,6 +115,12 @@ export function getUIElements(root = document) {
     audioMuteToggle: root.getElementById(UI_ELEMENT_IDS.audioMuteToggle),
     audioVolumeSlider: root.getElementById(UI_ELEMENT_IDS.audioVolumeSlider),
     audioStatusTextRegion: root.getElementById(UI_ELEMENT_IDS.audioStatusTextRegion),
+
+
+    presetShareLinkButton: root.getElementById(UI_ELEMENT_IDS.presetShareLinkButton),
+    presetApplyUrlButton: root.getElementById(UI_ELEMENT_IDS.presetApplyUrlButton),
+    presetResetPrefsButton: root.getElementById(UI_ELEMENT_IDS.presetResetPrefsButton),
+    presetDebugLine: root.getElementById(UI_ELEMENT_IDS.presetDebugLine),
 
     panelLauncherStrip: root.getElementById(UI_ELEMENT_IDS.panelLauncherStrip),
     panelLaunchers: Array.from(root.querySelectorAll('.panel-launcher'))

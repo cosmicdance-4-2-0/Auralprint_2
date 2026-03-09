@@ -273,3 +273,17 @@ input[type='range'] {
     width: 100%;
   }
 }
+
+
+#preset-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+#preset-debug-line {
+  font-size: 0.8rem;
+  opacity: 0.9;
+  min-height: 1.2rem;
+}

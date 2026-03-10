@@ -104,8 +104,11 @@
           <canvas id="waveform-scrubber-canvas" aria-label="Waveform scrubber"></canvas>
           <div id="scrubber-time-display" aria-live="polite">00:00 / 00:00</div>
         </div>
-        <!-- Structural placeholder: recording control surface only, no behavior implemented -->
         <div id="recording-controls-row">
+          <label for="record-capture-fps-input">Capture FPS</label>
+          <input id="record-capture-fps-input" type="number" min="12" max="120" step="1" value="60" />
+          <label for="record-include-audio-toggle">Include audio</label>
+          <input id="record-include-audio-toggle" type="checkbox" checked />
           <button id="record-start-button" type="button">Record start</button>
           <button id="record-stop-button" type="button">Record stop</button>
           <a id="record-download-action" href="#" download>Download</a>

@@ -283,6 +283,9 @@ function applyLiveSettings() {
 
   analysisEngine.configure({ audio: settings.audio, bands: settings.bands });
   visualizationEngine.configure({
+    audio: settings.audio,
+    orbs: settings.orbs,
+    timing: settings.timing,
     trace: settings.trace,
     particles: settings.particles,
     motion: settings.motion,

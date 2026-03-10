@@ -560,7 +560,8 @@ function wireAudioControls(applyAll) {
   };
 
   ui.audioLoopToggle?.addEventListener('click', () => {
-    patchPreferences({ audio: { loop: !runtime.settings.audio.loop } });
+    const nextLoop = !runtime.settings.audio.loop;
+    patchPreferences({ audio: { loop: nextLoop } });
     applyAll();
   });
 

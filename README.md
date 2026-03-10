@@ -193,6 +193,14 @@ Auralprint is a modular web application for audio playback/analysis/recording wh
 - [ ] Playback/analysis continue behaving correctly before/during/after recording.
 - [ ] No major FPS collapse at sane defaults (document tested defaults and observed range).
 
+## Release 3 pre-tag step (required)
+
+Immediately before tagging `v0.1.13` / Release 3:
+
+1. Regenerate hosted output from current source: `npm run build`.
+2. Verify source-to-dist parity for key Build 113 contract files: `npm run check:dist-contracts`.
+3. Only tag if both commands pass without mismatches.
+
 ## Proposed Repository Layout (Build 113-ready, future-proof for 114–120)
 
 ```text

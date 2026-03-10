@@ -3,12 +3,20 @@ import { patchPreferences, preferences } from '../../core/preferences.js';
 const TOGGLEABLE_PANELS = Object.freeze([
   'spectral-hud-panel',
   'simulation-controls-panel',
+  'render-camera-channel-panel',
+  'playlist-panel',
+  'status-panel',
+  'scrubber-panel',
   'audio-control-panel',
 ]);
 
 const PREFERENCE_PATH_BY_PANEL_ID = Object.freeze({
   'spectral-hud-panel': ['ui', 'panels', 'spectralHudPanelVisible'],
   'simulation-controls-panel': ['ui', 'panels', 'simulationControlsPanelVisible'],
+  'render-camera-channel-panel': ['ui', 'panels', 'renderCameraChannelPanelVisible'],
+  'playlist-panel': ['ui', 'panels', 'playlistPanelVisible'],
+  'status-panel': ['ui', 'panels', 'statusPanelVisible'],
+  'scrubber-panel': ['ui', 'panels', 'scrubberPanelVisible'],
   'audio-control-panel': ['ui', 'panels', 'audioControlPanelVisible'],
 });
 
@@ -18,6 +26,23 @@ function isTypingTarget(target) {
 
   const tagName = target.tagName.toLowerCase();
   return tagName === 'input' || tagName === 'textarea' || tagName === 'select';
+}
+
+function deriveLauncherVisibility(panelVisibility) {
+  const launcherVisibility = {};
+  TOGGLEABLE_PANELS.forEach((panelId) => {
+    // Launcher ergonomics contract: a panel's launcher is visible only while that panel is hidden.
+    launcherVisibility[panelId] = panelVisibility[panelId] === false;
+  });
+  return launcherVisibility;
+}
+
+function deriveAllPanelsHidden(panelVisibility) {
+  return TOGGLEABLE_PANELS.every((panelId) => panelVisibility[panelId] === false);
+}
+
+function deriveLauncherStripVisible(launcherVisibilityByPanelId) {
+  return TOGGLEABLE_PANELS.some((panelId) => launcherVisibilityByPanelId[panelId] === true);
 }
 
 function readPreferredPanelVisibility(panelId) {
@@ -54,6 +79,8 @@ export function createPanelsViewModel() {
   let state = {
     panelVisibility: {},
     allToggleablePanelsHidden: false,
+    launcherVisibilityByPanelId: {},
+    shouldShowLauncherStrip: false,
   };
 
   const listeners = new Set();
@@ -72,7 +99,9 @@ export function createPanelsViewModel() {
       [panelId]: isVisible,
     };
 
-    state.allToggleablePanelsHidden = TOGGLEABLE_PANELS.every((id) => !state.panelVisibility[id]);
+    state.allToggleablePanelsHidden = deriveAllPanelsHidden(state.panelVisibility);
+    state.launcherVisibilityByPanelId = deriveLauncherVisibility(state.panelVisibility);
+    state.shouldShowLauncherStrip = deriveLauncherStripVisible(state.launcherVisibilityByPanelId);
 
     if (persist) {
       writePreferredPanelVisibility(panelId, isVisible);
@@ -82,6 +111,10 @@ export function createPanelsViewModel() {
   }
 
   function toggleAllToggleablePanels() {
+    // Keyboard/global toggle contract (`H`):
+    // - If all toggleable panels are hidden, reveal all.
+    // - Otherwise, hide all.
+    // This preserves the expected single-key hide/show rhythm from prior builds.
     if (state.allToggleablePanelsHidden) {
       TOGGLEABLE_PANELS.forEach((panelId) => setPanelVisibility(panelId, true));
       return;
@@ -96,9 +129,13 @@ export function createPanelsViewModel() {
       panelVisibility[panelId] = readPreferredPanelVisibility(panelId);
     });
 
+    const launcherVisibilityByPanelId = deriveLauncherVisibility(panelVisibility);
+
     state = {
       panelVisibility,
-      allToggleablePanelsHidden: TOGGLEABLE_PANELS.every((panelId) => !panelVisibility[panelId]),
+      allToggleablePanelsHidden: deriveAllPanelsHidden(panelVisibility),
+      launcherVisibilityByPanelId,
+      shouldShowLauncherStrip: deriveLauncherStripVisible(launcherVisibilityByPanelId),
     };
   }
 
@@ -118,6 +155,8 @@ export function createPanelsViewModel() {
     return {
       panelVisibility: { ...state.panelVisibility },
       allToggleablePanelsHidden: state.allToggleablePanelsHidden,
+      launcherVisibilityByPanelId: { ...state.launcherVisibilityByPanelId },
+      shouldShowLauncherStrip: state.shouldShowLauncherStrip,
       toggleablePanels: [...TOGGLEABLE_PANELS],
     };
   }

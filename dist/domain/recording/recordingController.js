@@ -30,6 +30,7 @@ export function createRecordingController({
     latestDurationMs: 0,
     mimeType: DEFAULT_MIME_TYPE,
     artifact: null,
+    lastError: null,
   };
 
   const runtime = {
@@ -60,7 +61,24 @@ export function createRecordingController({
       return;
     }
 
+    if (state.lastError?.message) {
+      state.statusText = `${STATUS_PREFIX} idle (error: ${state.lastError.message})`;
+      return;
+    }
+
     state.statusText = `${STATUS_PREFIX} idle`;
+  }
+
+  function toRecordingError(error) {
+    const message = error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : 'Unable to start recording.';
+    return {
+      message,
+      atMs: now(),
+    };
   }
 
   function setStatus(nextStatus) {
@@ -119,6 +137,7 @@ export function createRecordingController({
     state.artifact = outputBlob.size > 0
       ? exportGateway?.createDownloadableArtifact({ blob: outputBlob, mimeType }) ?? null
       : null;
+    state.lastError = null;
 
     clearTimer();
     removeRecorderListeners();
@@ -135,52 +154,87 @@ export function createRecordingController({
       latestDurationMs: state.latestDurationMs,
       mimeType: state.mimeType,
       artifact: state.artifact,
+      lastError: state.lastError,
       canStart: state.status === STATUS.IDLE,
       canStop: state.status === STATUS.RECORDING,
       canDownload: Boolean(state.artifact?.url),
     };
   }
 
-  function startRecording({ canvasElement, audioEngine } = {}) {
+  function failStartRecording(error) {
+    clearTimer();
+    removeRecorderListeners();
+
+    if (runtime.recorder?.state && runtime.recorder.state !== 'inactive') {
+      runtime.recorder.stop();
+    }
+
+    runtime.recorder = null;
+    runtime.chunks = [];
+    releaseCapture();
+
+    state.startedAtMs = 0;
+    state.elapsedMs = 0;
+    state.lastError = toRecordingError(error);
+    state.status = STATUS.IDLE;
+    updateStatusText();
+    emitState();
+
+    return getRecordingState();
+  }
+
+  function startRecording({ canvasElement, audioEngine, settings } = {}) {
     if (state.status !== STATUS.IDLE) {
       return getRecordingState();
     }
 
     exportGateway?.revokeArtifact();
     state.artifact = null;
+    state.lastError = null;
 
-    runtime.captureSession = captureGateway?.createCaptureStream({
-      canvasElement,
-      audioTapStream: audioEngine?.getRecordingTapStream?.() ?? null,
-    });
-
-    const mimeType = runtime.captureSession?.mimeType ?? DEFAULT_MIME_TYPE;
-    state.mimeType = mimeType;
-    runtime.chunks = [];
-
-    const recorderOptions = mimeType ? { mimeType } : undefined;
-    runtime.recorder = new MediaRecorder(runtime.captureSession.stream, recorderOptions);
-
-    const onDataAvailable = (event) => {
-      if (event.data && event.data.size > 0) {
-        runtime.chunks.push(event.data);
+    try {
+      const support = captureGateway?.isCaptureSupported?.({ canvasElement });
+      if (support && support.supported === false) {
+        throw new Error(support.reason || 'Capture is not supported in this environment.');
       }
-    };
-    const onStop = () => {
-      finalizeRecording();
-    };
 
-    runtime.recorder.addEventListener('dataavailable', onDataAvailable);
-    runtime.recorder.addEventListener('stop', onStop);
-    runtime.recorderListeners = { onDataAvailable, onStop };
+      runtime.captureSession = captureGateway?.createCaptureStream({
+        canvasElement,
+        audioTapStream: settings?.includeAudio ? audioEngine?.getRecordingTapStream?.() ?? null : null,
+        frameRate: settings?.captureFps,
+        includeAudio: settings?.includeAudio,
+      });
 
-    state.startedAtMs = now();
-    state.elapsedMs = 0;
-    setStatus(STATUS.RECORDING);
-    startTimer();
+      const mimeType = runtime.captureSession?.mimeType ?? DEFAULT_MIME_TYPE;
+      state.mimeType = mimeType;
+      runtime.chunks = [];
 
-    runtime.recorder.start();
-    return getRecordingState();
+      const recorderOptions = mimeType ? { mimeType } : undefined;
+      runtime.recorder = new MediaRecorder(runtime.captureSession.stream, recorderOptions);
+
+      const onDataAvailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          runtime.chunks.push(event.data);
+        }
+      };
+      const onStop = () => {
+        finalizeRecording();
+      };
+
+      runtime.recorder.addEventListener('dataavailable', onDataAvailable);
+      runtime.recorder.addEventListener('stop', onStop);
+      runtime.recorderListeners = { onDataAvailable, onStop };
+
+      state.startedAtMs = now();
+      state.elapsedMs = 0;
+      setStatus(STATUS.RECORDING);
+      startTimer();
+
+      runtime.recorder.start();
+      return getRecordingState();
+    } catch (error) {
+      return failStartRecording(error);
+    }
   }
 
   function stopRecording() {
@@ -214,6 +268,7 @@ export function createRecordingController({
     state.elapsedMs = 0;
     state.latestDurationMs = 0;
     state.startedAtMs = 0;
+    state.lastError = null;
     setStatus(STATUS.IDLE);
   }
 

@@ -2,6 +2,9 @@ const DEFAULT_MIME_TYPE = 'video/webm';
 const DEFAULT_FILENAME_BASE = 'auralprint-capture';
 
 function resolveExtensionFromMimeType(mimeType) {
+  if (typeof mimeType === 'string' && mimeType.includes('mp4')) {
+    return 'mp4';
+  }
   if (typeof mimeType === 'string' && mimeType.includes('webm')) {
     return 'webm';
   }

@@ -11,11 +11,21 @@ import {
 } from './presets/urlPreset.js';
 import { patchPreferences, preferences, resetPreferences, runtime, setPreferences } from './core/preferences.js';
 import { createAudioEngine } from './audio/audioEngine.js';
+import { createDecodeGateway } from './io/decode/decodeGateway.js';
+import { createPlaybackGateway } from './io/playback/playbackGateway.js';
 import { wireSimulationControls } from './ui/controls/wireSimulationControls.js';
 import { createBandHudPresenter } from './ui/hud/bandHudPresenter.js';
+import { createSpectrum256CanvasPresenter } from './ui/hud/spectrum256CanvasPresenter.js';
 import { createCaptureGateway } from './io/capture/captureGateway.js';
 import { createExportGateway } from './io/export/exportGateway.js';
 import { createRecordingController } from './domain/recording/recordingController.js';
+import { createTransportController } from './domain/transport/transportController.js';
+
+const SCRUBBER_KEYBOARD_SEEK_STEP_SECONDS = 5;
+const SCRUBBER_KEYBOARD_ACCELERATED_SEEK_STEP_SECONDS = 30;
+const RECORD_START_POLICY = Object.freeze({
+  requiresLoadedSource: true,
+});
 
 const appLifecycle = createAppLifecycle();
 const bootstrapResult = bootstrapApplication({ appLifecycle });
@@ -42,8 +52,11 @@ const playbackSession = {
   isScrubbing: false,
 };
 
+let transportController;
+
 const audioEngine = createAudioEngine({
   onStatusChange(status) {
+    transportController?.handlePlaybackStatus(status);
     statusViewModel.setAudioStatus(status);
     controlsViewModel.setAudioStatus(status);
 
@@ -53,12 +66,21 @@ const audioEngine = createAudioEngine({
   },
 });
 
+const decodeGateway = createDecodeGateway();
+const playbackGateway = createPlaybackGateway({ audioEngine });
+transportController = createTransportController({ playbackGateway });
+
 analysisEngine.bindAudioEngine(audioEngine);
 visualizationEngine.bindCanvas(ui.renderSurfaceCanvas);
 
 const bandHudPresenter = createBandHudPresenter({
   tableBodyElement: ui.bandHudTableBody,
   dominantElement: ui.bandHudDominantLine,
+});
+
+const spectrum256CanvasPresenter = createSpectrum256CanvasPresenter({
+  canvasElement: ui.spectrum256Canvas,
+  panelElement: ui.spectrum256Region,
 });
 
 const captureGateway = createCaptureGateway();
@@ -174,6 +196,11 @@ function renderControls(controlState) {
     ui.audioVolumeSlider.value = String(controlState.volumePercent);
   }
 
+  if (ui.recordStartButton) {
+    const recordingState = recordingController.getRecordingState();
+    ui.recordStartButton.disabled = !recordingState.canStart || !controlState.canRecord;
+  }
+
   const queueState = queueController.getQueueState();
   const hasMultipleTracks = queueState.length >= 2;
   if (ui.audioPrevButton) {
@@ -184,10 +211,31 @@ function renderControls(controlState) {
   }
 }
 
+function evaluateRecordStartPolicy(playbackState = {}) {
+  if (RECORD_START_POLICY.requiresLoadedSource && !playbackState.hasSource) {
+    return {
+      canRecord: false,
+      reason: 'Recording blocked: load an audio source before starting capture.',
+    };
+  }
+
+  return {
+    canRecord: true,
+    reason: '',
+  };
+}
+
+function projectControlsFromTransport(playbackState = transportController.getPlaybackState()) {
+  const policy = evaluateRecordStartPolicy(playbackState);
+  controlsViewModel.projectFromPlayback(playbackState, { canRecord: policy.canRecord });
+  return { playbackState, policy };
+}
+
 function renderPanelVisibility(panelState) {
   const visibilityById = panelState.panelVisibility;
 
-  [ui.spectralHudPanel, ui.simulationControlsPanel, ui.audioControlPanel]
+  panelState.toggleablePanels
+    .map((panelId) => document.getElementById(panelId))
     .filter(Boolean)
     .forEach((panelElement) => {
       const isVisible = visibilityById[panelElement.id] !== false;
@@ -200,17 +248,16 @@ function renderPanelVisibility(panelState) {
       const targetId = launcher.dataset.panelTarget;
       if (!targetId) return;
 
-      const targetVisibility = visibilityById[targetId];
-      const shouldShowLauncher = targetVisibility === false;
+      const shouldShowLauncher = panelState.launcherVisibilityByPanelId?.[targetId] === true;
       launcher.hidden = !shouldShowLauncher;
       launcher.setAttribute('aria-hidden', String(!shouldShowLauncher));
     });
   }
 
   if (ui.panelLauncherStrip) {
-    const hasVisibleLauncher = ui.panelLaunchers?.some((launcher) => !launcher.hidden);
-    ui.panelLauncherStrip.hidden = !hasVisibleLauncher;
-    ui.panelLauncherStrip.setAttribute('aria-hidden', String(!hasVisibleLauncher));
+    const shouldShowLauncherStrip = panelState.shouldShowLauncherStrip === true;
+    ui.panelLauncherStrip.hidden = !shouldShowLauncherStrip;
+    ui.panelLauncherStrip.setAttribute('aria-hidden', String(!shouldShowLauncherStrip));
   }
 }
 
@@ -219,8 +266,16 @@ function renderRecordingState(recordingState) {
     ui.recordingStatusTextRegion.textContent = recordingState.statusText;
   }
 
+  if (ui.recordCaptureFpsInput) {
+    ui.recordCaptureFpsInput.value = String(runtime.settings.recording.captureFps);
+  }
+
+  if (ui.recordIncludeAudioToggle) {
+    ui.recordIncludeAudioToggle.checked = runtime.settings.recording.includeAudio;
+  }
+
   if (ui.recordStartButton) {
-    ui.recordStartButton.disabled = !recordingState.canStart;
+    ui.recordStartButton.disabled = !recordingState.canStart || !controlsViewModel.getState().canRecord;
   }
 
   if (ui.recordStopButton) {
@@ -255,6 +310,9 @@ function applyLiveSettings() {
 
   analysisEngine.configure({ audio: settings.audio, bands: settings.bands });
   visualizationEngine.configure({
+    audio: settings.audio,
+    orbs: settings.orbs,
+    timing: settings.timing,
     trace: settings.trace,
     particles: settings.particles,
     motion: settings.motion,
@@ -266,7 +324,9 @@ function applyLiveSettings() {
     ui.renderSurfaceCanvas.style.background = settings.visuals.backgroundColor;
   }
 
-  controlsViewModel.projectFromPlayback(audioEngine.getPlaybackState());
+  spectrum256CanvasPresenter.configure(settings);
+
+  projectControlsFromTransport();
 }
 
 function performSimulationReset() {
@@ -279,11 +339,12 @@ function resetTrackTransitionState() {
   playbackSession.scrubberWaveform = new Float32Array(0);
 }
 
-function createQueueItem(file) {
+function createQueueItem(file, metadata = null) {
   return {
     id: `track-${playbackSession.itemIdCounter += 1}`,
     file,
-    title: file?.name || 'Untitled track',
+    title: metadata?.name || file?.name || 'Untitled track',
+    metadata,
   };
 }
 
@@ -326,7 +387,7 @@ function renderQueueList() {
     ui.queueListRegion.append(row);
   });
 
-  controlsViewModel.projectFromPlayback(audioEngine.getPlaybackState());
+  projectControlsFromTransport();
 }
 
 async function loadQueueItem(item, { autoplay = true } = {}) {
@@ -335,18 +396,10 @@ async function loadQueueItem(item, { autoplay = true } = {}) {
   playbackSession.activeTrackId = item.id;
   resetTrackTransitionState();
 
-  audioEngine.loadFile(item.file);
+  await transportController.loadSource(item, { autoplay });
   applyLiveSettings();
 
-  if (autoplay) {
-    try {
-      await audioEngine.play();
-    } catch {
-      // Browser autoplay policy may block this.
-    }
-  }
-
-  controlsViewModel.projectFromPlayback(audioEngine.getPlaybackState());
+  projectControlsFromTransport();
   renderQueueList();
 }
 
@@ -366,9 +419,9 @@ function clearQueueAndPlayback() {
   queueController.clear();
   playbackSession.activeTrackId = null;
   resetTrackTransitionState();
-  audioEngine.unload();
+  transportController.unload();
   renderQueueList();
-  renderScrubber(audioEngine.getPlaybackState());
+  renderScrubber(transportController.getPlaybackState());
 }
 
 function runFrame() {
@@ -384,8 +437,9 @@ function runFrame() {
 
   visualizationEngine.tick({ analysisFrame });
   bandHudPresenter.present(bandSnapshot);
+  spectrum256CanvasPresenter.present(bandSnapshot);
 
-  renderScrubber(audioEngine.getPlaybackState());
+  renderScrubber(transportController.getPlaybackState());
 }
 
 async function handleShareLink(updateDebug) {
@@ -439,7 +493,7 @@ function wireScrubberInteractions() {
   if (!ui.waveformScrubberCanvas) return;
 
   const seekFromClientX = (clientX) => {
-    const playbackState = audioEngine.getPlaybackState();
+    const playbackState = transportController.getPlaybackState();
     if (!playbackState.hasSource || !Number.isFinite(playbackState.durationSeconds) || playbackState.durationSeconds <= 0) {
       return;
     }
@@ -448,9 +502,9 @@ function wireScrubberInteractions() {
     if (rect.width <= 0) return;
 
     const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    audioEngine.seekTo(playbackState.durationSeconds * ratio);
-    controlsViewModel.projectFromPlayback(audioEngine.getPlaybackState());
-    renderScrubber(audioEngine.getPlaybackState());
+    transportController.seek(playbackState.durationSeconds * ratio);
+    projectControlsFromTransport();
+    renderScrubber(transportController.getPlaybackState());
   };
 
   ui.waveformScrubberCanvas.addEventListener('mousedown', (event) => {
@@ -472,11 +526,33 @@ function wireScrubberInteractions() {
   });
 }
 
-function wireRecordingControls() {
+function wireRecordingControls(applyAll) {
+  ui.recordCaptureFpsInput?.addEventListener('input', () => {
+    patchPreferences({ recording: { captureFps: Number(ui.recordCaptureFpsInput.value) } });
+    applyAll();
+  });
+
+  ui.recordIncludeAudioToggle?.addEventListener('change', () => {
+    patchPreferences({ recording: { includeAudio: ui.recordIncludeAudioToggle.checked } });
+    applyAll();
+  });
+
   ui.recordStartButton?.addEventListener('click', () => {
+    const playbackState = transportController.getPlaybackState();
+    const policy = evaluateRecordStartPolicy(playbackState);
+    projectControlsFromTransport(playbackState);
+
+    if (!policy.canRecord) {
+      if (ui.recordingStatusTextRegion) {
+        ui.recordingStatusTextRegion.textContent = policy.reason;
+      }
+      return;
+    }
+
     recordingController.startRecording({
       canvasElement: ui.renderSurfaceCanvas,
       audioEngine,
+      settings: runtime.settings.recording,
     });
   });
 
@@ -493,6 +569,9 @@ function wireRecordingControls() {
 }
 
 function wireAudioControls(applyAll) {
+  const dropSurfaceElement = ui.renderSurfaceCanvas ?? ui.appShell;
+  const DROP_ACTIVE_CLASS_NAME = 'is-drop-active';
+
   const fileInput = document.createElement('input');
   fileInput.type = 'file';
   fileInput.accept = 'audio/*';
@@ -500,8 +579,27 @@ function wireAudioControls(applyAll) {
   fileInput.style.display = 'none';
   document.body.append(fileInput);
 
+  const processIncomingFiles = async (files) => {
+    if (!files.length) return;
+
+    const decodeResult = await decodeGateway.decodeFiles(files);
+    const queueItems = decodeResult.accepted.map(({ file, metadata }) => createQueueItem(file, metadata));
+    if (!queueItems.length) return;
+
+    const queueStateBefore = queueController.getQueueState();
+    const shouldAutoplayFirst = queueStateBefore.length === 0;
+
+    queueController.addItems(queueItems);
+    renderQueueList();
+
+    if (shouldAutoplayFirst) {
+      await jumpToQueueIndex(0, { autoplay: true });
+    }
+  };
+
   ui.audioLoopToggle?.addEventListener('click', () => {
-    patchPreferences({ audio: { loop: !runtime.settings.audio.loop } });
+    const nextLoop = !runtime.settings.audio.loop;
+    patchPreferences({ audio: { loop: nextLoop } });
     applyAll();
   });
 
@@ -528,10 +626,9 @@ function wireAudioControls(applyAll) {
   });
 
   ui.audioQueueToggle?.addEventListener('click', () => {
-    if (!ui.playlistPanel) return;
-    const shouldShow = ui.playlistPanel.hidden;
-    ui.playlistPanel.hidden = !shouldShow;
-    ui.playlistPanel.setAttribute('aria-hidden', String(!shouldShow));
+    const panelState = panelsViewModel.getState();
+    const isVisible = panelState.panelVisibility['playlist-panel'] !== false;
+    panelsViewModel.setPanelVisibility('playlist-panel', !isVisible);
   });
 
   ui.playlistShuffleToggle?.addEventListener('click', () => {
@@ -587,39 +684,52 @@ function wireAudioControls(applyAll) {
 
   fileInput.addEventListener('change', async () => {
     const files = Array.from(fileInput.files ?? []);
-    if (!files.length) return;
-
-    const queueItems = files.map((file) => createQueueItem(file));
-    const queueStateBefore = queueController.getQueueState();
-    const shouldAutoplayFirst = queueStateBefore.length === 0;
-
-    queueController.addItems(queueItems);
-    renderQueueList();
-
-    if (shouldAutoplayFirst) {
-      await jumpToQueueIndex(0, { autoplay: true });
-    }
-
+    await processIncomingFiles(files);
     fileInput.value = '';
   });
 
+  dropSurfaceElement?.addEventListener('dragover', (event) => {
+    event.preventDefault();
+    dropSurfaceElement.classList.add(DROP_ACTIVE_CLASS_NAME);
+  });
+
+  dropSurfaceElement?.addEventListener('dragleave', () => {
+    dropSurfaceElement.classList.remove(DROP_ACTIVE_CLASS_NAME);
+  });
+
+  dropSurfaceElement?.addEventListener('drop', (event) => {
+    event.preventDefault();
+    dropSurfaceElement.classList.remove(DROP_ACTIVE_CLASS_NAME);
+
+    const fileItems = Array.from(event.dataTransfer?.items ?? [])
+      .filter((item) => item.kind === 'file')
+      .map((item) => item.getAsFile())
+      .filter(Boolean);
+
+    const files = fileItems.length
+      ? fileItems
+      : Array.from(event.dataTransfer?.files ?? []);
+
+    void processIncomingFiles(files);
+  });
+
   ui.audioPlayPauseButton?.addEventListener('click', async () => {
-    const playbackState = audioEngine.getPlaybackState();
+    const playbackState = transportController.getPlaybackState();
     if (!playbackState.hasSource) return;
 
     if (playbackState.status === 'playing') {
-      audioEngine.pause();
+      transportController.pause();
     } else {
-      await audioEngine.play();
+      await transportController.play();
     }
 
-    controlsViewModel.projectFromPlayback(audioEngine.getPlaybackState());
+    projectControlsFromTransport();
   });
 
   ui.audioStopButton?.addEventListener('click', () => {
-    audioEngine.stop();
-    controlsViewModel.projectFromPlayback(audioEngine.getPlaybackState());
-    renderScrubber(audioEngine.getPlaybackState());
+    transportController.stop();
+    projectControlsFromTransport();
+    renderScrubber(transportController.getPlaybackState());
   });
 
   window.addEventListener('beforeunload', () => {
@@ -653,15 +763,17 @@ if (ui.panelLaunchers?.length) {
     launcher.addEventListener('click', () => {
       const targetId = launcher.dataset.panelTarget;
       if (!targetId) return;
-      if (targetId === 'playlist-panel' || targetId === 'scrubber-panel') {
-        const panel = document.getElementById(targetId);
-        if (panel) {
-          panel.hidden = false;
-          panel.setAttribute('aria-hidden', 'false');
-        }
-        return;
-      }
       panelsViewModel.setPanelVisibility(targetId, true);
+    });
+  });
+}
+
+if (ui.panelHideControls?.length) {
+  ui.panelHideControls.forEach((hideControl) => {
+    hideControl.addEventListener('click', () => {
+      const targetId = hideControl.dataset.panelHideTarget;
+      if (!targetId) return;
+      panelsViewModel.setPanelVisibility(targetId, false);
     });
   });
 }
@@ -669,7 +781,7 @@ if (ui.panelLaunchers?.length) {
 wirePresetButtons(applyAll);
 wireAudioControls(applyAll);
 wireScrubberInteractions();
-wireRecordingControls();
+wireRecordingControls(applyAll);
 wireSimulationControls({
   ui,
   onSettingsApplied() {
@@ -684,7 +796,7 @@ if (queueTemplate) {
 
 applyAll();
 renderQueueList();
-renderScrubber(audioEngine.getPlaybackState());
+renderScrubber(transportController.getPlaybackState());
 renderRecordingState(recordingController.getRecordingState());
 analysisEngine.start();
 visualizationEngine.start();
@@ -703,9 +815,28 @@ appLifecycle.wireBaselineKeyboardShortcuts({
     syncSimulationStatusFromLifecycle();
     performSimulationReset();
   },
+  onQueueNavigate({ direction }) {
+    if (direction !== 'next' && direction !== 'previous') return;
+    void playQueueOffset({ direction, autoplay: true });
+  },
+  onSeekRelative({ direction, accelerated }) {
+    if (direction !== 1 && direction !== -1) return;
+
+    const playbackState = transportController.getPlaybackState();
+    if (!playbackState.hasSource || !Number.isFinite(playbackState.durationSeconds) || playbackState.durationSeconds <= 0) {
+      return;
+    }
+
+    const seekStepSeconds = accelerated
+      ? SCRUBBER_KEYBOARD_ACCELERATED_SEEK_STEP_SECONDS
+      : SCRUBBER_KEYBOARD_SEEK_STEP_SECONDS;
+    const nextTimeSeconds = playbackState.currentTimeSeconds + (direction * seekStepSeconds);
+    transportController.seek(nextTimeSeconds);
+    projectControlsFromTransport();
+    renderScrubber(transportController.getPlaybackState());
+  },
 });
 
 appLifecycle.startFrameLoop({
   onFrame: runFrame,
-  intervalMs: bandHudPresenter.refreshIntervalMs,
 });

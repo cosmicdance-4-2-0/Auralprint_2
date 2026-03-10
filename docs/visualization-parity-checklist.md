@@ -48,3 +48,17 @@ Source of truth legacy sections:
 - Orb radial displacement samples analyzer waveform (`analysisFrame.channels[chanId].waveform` / center fallback).
 - Overlay geometry consumes analyzed band energies (`analysisFrame.bands.energies01`) and center waveform when available.
 - Dominant-band color modes consume `analysisFrame.bands.dominant.index`.
+
+## Legacy behavior verification status
+
+Verified against:
+- `src/domain/visualization/visualizationSimulation.js`
+- `src/domain/visualization/visualizationRenderer.js`
+- `src/domain/analysis/analysisEngine.js`
+
+| Legacy behavior | Status | Verification notes | Rationale / follow-up |
+|---|---|---|---|
+| Trail lines | matched | `drawTrailLines` still gates on `settings.trace.lines`, uses `numLines + 1` point slicing, applies configured alpha/width, and supports fixed/lastParticle/dominantBand color selection. | n/a |
+| Particle sizing/fade | matched | `drawParticles` keeps legacy interpolation: size lerps from `sizeMaxPx` to `sizeMinPx` over `sizeToMinSec`, then color lerps to `backgroundColor` through the remaining `ttlSec` window. | n/a |
+| Ring phase modes | matched | Simulation still uses `phaseMode`: `free` integrates `ringSpeedRadPerSec * dt`, while `orb` follows the first orb angle (`orbSnapshots[0].angleRad`). | n/a |
+| Dominant color modes | matched | Renderer resolves dominant particle/line colors from `simFrame.bands.dominant.index`; AnalysisEngine provides `bands` via BandBank (`createBandBank` source channel `C`), preserving the dominant-band analysis path. | n/a |

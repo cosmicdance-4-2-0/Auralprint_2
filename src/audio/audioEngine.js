@@ -251,6 +251,14 @@ export function createAudioEngine({ onStatusChange } = {}) {
     }
   }
 
+
+  function seekTo(seconds) {
+    if (!state.mediaElement || !Number.isFinite(seconds)) return;
+    const durationSeconds = Number.isFinite(state.mediaElement.duration) ? state.mediaElement.duration : 0;
+    const nextTime = Math.max(0, Math.min(durationSeconds || 0, seconds));
+    state.mediaElement.currentTime = nextTime;
+  }
+
   function setAnalysisConfig({ fftSize, smoothingTimeConstant, rmsGain } = {}) {
     if (Number.isFinite(fftSize) && CONFIG.limits.audio.fftSizes.includes(fftSize)) {
       state.fftSize = fftSize;
@@ -387,6 +395,7 @@ export function createAudioEngine({ onStatusChange } = {}) {
     setPlaybackLoop,
     setPlaybackMuted,
     setPlaybackVolume,
+    seekTo,
     // Playback-only controls: analysis taps keep full-level signal for correctness and future capture.
     setAnalysisConfig,
     setMonoIshConfig,

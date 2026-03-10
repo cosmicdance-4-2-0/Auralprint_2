@@ -220,17 +220,16 @@ function renderPanelVisibility(panelState) {
       const targetId = launcher.dataset.panelTarget;
       if (!targetId) return;
 
-      const targetVisibility = visibilityById[targetId];
-      const shouldShowLauncher = targetVisibility === false;
+      const shouldShowLauncher = panelState.launcherVisibilityByPanelId?.[targetId] === true;
       launcher.hidden = !shouldShowLauncher;
       launcher.setAttribute('aria-hidden', String(!shouldShowLauncher));
     });
   }
 
   if (ui.panelLauncherStrip) {
-    const hasVisibleLauncher = ui.panelLaunchers?.some((launcher) => !launcher.hidden);
-    ui.panelLauncherStrip.hidden = !hasVisibleLauncher;
-    ui.panelLauncherStrip.setAttribute('aria-hidden', String(!hasVisibleLauncher));
+    const shouldShowLauncherStrip = panelState.shouldShowLauncherStrip === true;
+    ui.panelLauncherStrip.hidden = !shouldShowLauncherStrip;
+    ui.panelLauncherStrip.setAttribute('aria-hidden', String(!shouldShowLauncherStrip));
   }
 }
 

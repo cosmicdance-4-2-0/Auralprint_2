@@ -21,6 +21,9 @@ import { createExportGateway } from './io/export/exportGateway.js';
 import { createRecordingController } from './domain/recording/recordingController.js';
 import { createTransportController } from './domain/transport/transportController.js';
 
+const SCRUBBER_KEYBOARD_SEEK_STEP_SECONDS = 5;
+const SCRUBBER_KEYBOARD_ACCELERATED_SEEK_STEP_SECONDS = 30;
+
 const appLifecycle = createAppLifecycle();
 const bootstrapResult = bootstrapApplication({ appLifecycle });
 const ui = getUIElements(document);
@@ -717,6 +720,26 @@ appLifecycle.wireBaselineKeyboardShortcuts({
   onReset() {
     syncSimulationStatusFromLifecycle();
     performSimulationReset();
+  },
+  onQueueNavigate({ direction }) {
+    if (direction !== 'next' && direction !== 'previous') return;
+    void playQueueOffset({ direction, autoplay: true });
+  },
+  onSeekRelative({ direction, accelerated }) {
+    if (direction !== 1 && direction !== -1) return;
+
+    const playbackState = transportController.getPlaybackState();
+    if (!playbackState.hasSource || !Number.isFinite(playbackState.durationSeconds) || playbackState.durationSeconds <= 0) {
+      return;
+    }
+
+    const seekStepSeconds = accelerated
+      ? SCRUBBER_KEYBOARD_ACCELERATED_SEEK_STEP_SECONDS
+      : SCRUBBER_KEYBOARD_SEEK_STEP_SECONDS;
+    const nextTimeSeconds = playbackState.currentTimeSeconds + (direction * seekStepSeconds);
+    transportController.seek(nextTimeSeconds);
+    controlsViewModel.projectFromPlayback(transportController.getPlaybackState());
+    renderScrubber(transportController.getPlaybackState());
   },
 });
 

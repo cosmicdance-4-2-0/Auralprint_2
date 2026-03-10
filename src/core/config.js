@@ -104,6 +104,11 @@ const configDefinition = {
       volume: 1,
     },
 
+    recording: {
+      captureFps: 60,
+      includeAudio: true,
+    },
+
     bands: {
       count: 256,
       floorHz: 10,
@@ -164,6 +169,10 @@ const configDefinition = {
       maxRadiusFrac: { min: 0.05, max: 1, step: 0.01 },
       smoothingTimeConstant: { min: 0, max: 0.99, step: 0.01 },
       fftSizes: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768],
+    },
+
+    recording: {
+      captureFps: { min: 12, max: 120, step: 1 },
     },
 
     bands: {

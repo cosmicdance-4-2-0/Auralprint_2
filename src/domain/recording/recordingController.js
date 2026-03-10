@@ -141,7 +141,7 @@ export function createRecordingController({
     };
   }
 
-  function startRecording({ canvasElement, audioEngine } = {}) {
+  function startRecording({ canvasElement, audioEngine, settings } = {}) {
     if (state.status !== STATUS.IDLE) {
       return getRecordingState();
     }
@@ -151,7 +151,9 @@ export function createRecordingController({
 
     runtime.captureSession = captureGateway?.createCaptureStream({
       canvasElement,
-      audioTapStream: audioEngine?.getRecordingTapStream?.() ?? null,
+      audioTapStream: settings?.includeAudio ? audioEngine?.getRecordingTapStream?.() ?? null : null,
+      frameRate: settings?.captureFps,
+      includeAudio: settings?.includeAudio,
     });
 
     const mimeType = runtime.captureSession?.mimeType ?? DEFAULT_MIME_TYPE;

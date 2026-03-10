@@ -30,7 +30,12 @@ function resolveSupportedMimeType(preferredMimeTypes = WEBM_MIME_CANDIDATES) {
 
 /** Public interface for capture stream setup and teardown. */
 export function createCaptureGateway() {
-  function createCaptureStream({ canvasElement, audioTapStream = null, frameRate = DEFAULT_CAPTURE_FRAME_RATE } = {}) {
+  function createCaptureStream({
+    canvasElement,
+    audioTapStream = null,
+    frameRate = DEFAULT_CAPTURE_FRAME_RATE,
+    includeAudio = true,
+  } = {}) {
     if (!(canvasElement instanceof HTMLCanvasElement)) {
       throw new Error('CaptureGateway.createCaptureStream requires a render canvas element.');
     }
@@ -48,7 +53,7 @@ export function createCaptureGateway() {
       ownedTracks.push(track);
     }
 
-    if (audioTapStream instanceof MediaStream) {
+    if (includeAudio && audioTapStream instanceof MediaStream) {
       for (const track of audioTapStream.getAudioTracks()) {
         const clonedTrack = track.clone();
         composedStream.addTrack(clonedTrack);

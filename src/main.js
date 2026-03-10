@@ -29,12 +29,24 @@ const {
   statusViewModel,
   controlsViewModel,
   panelsViewModel,
+  queueController,
 } = bootstrapResult.modules;
+
+const playbackSession = {
+  itemIdCounter: 0,
+  activeTrackId: null,
+  scrubberWaveform: new Float32Array(0),
+  isScrubbing: false,
+};
 
 const audioEngine = createAudioEngine({
   onStatusChange(status) {
     statusViewModel.setAudioStatus(status);
     controlsViewModel.setAudioStatus(status);
+
+    if (status === 'ended' && !runtime.settings.audio.loop) {
+      void playQueueOffset({ direction: 'next', autoplay: true });
+    }
   },
 });
 
@@ -52,6 +64,73 @@ function createPresetDebugUpdater(debugElement) {
       debugElement.textContent = `Preset Debug: ${message}`;
     }
   };
+}
+
+function formatTime(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return '00:00';
+  const totalSeconds = Math.floor(seconds);
+  const minutes = Math.floor(totalSeconds / 60);
+  const remainder = totalSeconds % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`;
+}
+
+function renderScrubber(playbackState) {
+  if (!ui.waveformScrubberCanvas) return;
+
+  const canvas = ui.waveformScrubberCanvas;
+  const context = canvas.getContext('2d');
+  if (!context) return;
+
+  const cssWidth = Math.max(8, canvas.clientWidth || 8);
+  const cssHeight = Math.max(32, canvas.clientHeight || 32);
+  const dpr = window.devicePixelRatio || 1;
+  const targetWidth = Math.floor(cssWidth * dpr);
+  const targetHeight = Math.floor(cssHeight * dpr);
+
+  if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+  }
+
+  context.setTransform(dpr, 0, 0, dpr, 0, 0);
+  context.clearRect(0, 0, cssWidth, cssHeight);
+  context.fillStyle = 'rgba(14, 18, 30, 0.95)';
+  context.fillRect(0, 0, cssWidth, cssHeight);
+
+  const waveform = playbackSession.scrubberWaveform;
+  if (waveform.length > 0) {
+    const centerY = cssHeight * 0.5;
+    const halfHeight = Math.max(1, cssHeight * 0.42);
+    const step = waveform.length / cssWidth;
+
+    context.strokeStyle = 'rgba(101, 220, 255, 0.95)';
+    context.lineWidth = 1;
+    context.beginPath();
+    for (let x = 0; x < cssWidth; x += 1) {
+      const index = Math.min(waveform.length - 1, Math.floor(x * step));
+      const sample = waveform[index] ?? 0;
+      const y = centerY + sample * halfHeight;
+      if (x === 0) {
+        context.moveTo(0, y);
+      } else {
+        context.lineTo(x, y);
+      }
+    }
+    context.stroke();
+  }
+
+  const durationSeconds = playbackState.durationSeconds || 0;
+  const progress = durationSeconds > 0 ? (playbackState.currentTimeSeconds || 0) / durationSeconds : 0;
+  const clampedProgress = Math.max(0, Math.min(1, progress));
+  context.fillStyle = 'rgba(125, 132, 255, 0.24)';
+  context.fillRect(0, 0, cssWidth * clampedProgress, cssHeight);
+
+  context.strokeStyle = 'rgba(255, 255, 255, 0.28)';
+  context.strokeRect(0.5, 0.5, Math.max(0, cssWidth - 1), Math.max(0, cssHeight - 1));
+
+  if (ui.scrubberTimeDisplay) {
+    ui.scrubberTimeDisplay.textContent = `${formatTime(playbackState.currentTimeSeconds || 0)} / ${formatTime(durationSeconds)}`;
+  }
 }
 
 function renderStatusPanels(state) {
@@ -82,6 +161,15 @@ function renderControls(controlState) {
   }
   if (ui.audioVolumeSlider) {
     ui.audioVolumeSlider.value = String(controlState.volumePercent);
+  }
+
+  const queueState = queueController.getQueueState();
+  const hasMultipleTracks = queueState.length >= 2;
+  if (ui.audioPrevButton) {
+    ui.audioPrevButton.disabled = !hasMultipleTracks;
+  }
+  if (ui.audioNextButton) {
+    ui.audioNextButton.disabled = !hasMultipleTracks;
   }
 }
 
@@ -153,6 +241,103 @@ function performSimulationReset() {
   visualizationEngine.reset();
 }
 
+function resetTrackTransitionState() {
+  performSimulationReset();
+  playbackSession.scrubberWaveform = new Float32Array(0);
+}
+
+function createQueueItem(file) {
+  return {
+    id: `track-${playbackSession.itemIdCounter += 1}`,
+    file,
+    title: file?.name || 'Untitled track',
+  };
+}
+
+function renderQueueList() {
+  if (!ui.queueListRegion) return;
+
+  const queueState = queueController.getQueueState();
+  const template = document.getElementById('queue-item-template');
+  ui.queueListRegion.innerHTML = '';
+
+  queueState.items.forEach((item, index) => {
+    let row;
+    if (template) {
+      row = template.cloneNode(true);
+      row.removeAttribute('id');
+    } else {
+      row = document.createElement('li');
+      row.className = 'queue-item';
+      row.innerHTML = '<button class="queue-jump-target" type="button"></button><button class="queue-item-remove" type="button" aria-label="Remove queue item">✕</button>';
+    }
+
+    row.dataset.index = String(index);
+    const jumpButton = row.querySelector('.queue-jump-target');
+    const removeButton = row.querySelector('.queue-item-remove');
+
+    if (jumpButton) {
+      jumpButton.textContent = item.title;
+      jumpButton.dataset.index = String(index);
+      jumpButton.setAttribute('aria-current', String(index === queueState.activeIndex));
+    }
+
+    if (removeButton) {
+      removeButton.dataset.index = String(index);
+    }
+
+    if (index === queueState.activeIndex) {
+      row.setAttribute('aria-current', 'true');
+    }
+
+    ui.queueListRegion.append(row);
+  });
+
+  controlsViewModel.projectFromPlayback(audioEngine.getPlaybackState());
+}
+
+async function loadQueueItem(item, { autoplay = true } = {}) {
+  if (!item?.file) return;
+
+  playbackSession.activeTrackId = item.id;
+  resetTrackTransitionState();
+
+  audioEngine.loadFile(item.file);
+  applyLiveSettings();
+
+  if (autoplay) {
+    try {
+      await audioEngine.play();
+    } catch {
+      // Browser autoplay policy may block this.
+    }
+  }
+
+  controlsViewModel.projectFromPlayback(audioEngine.getPlaybackState());
+  renderQueueList();
+}
+
+async function playQueueOffset({ direction, autoplay = true } = {}) {
+  const item = direction === 'previous' ? queueController.previous() : queueController.next();
+  if (!item) return;
+  await loadQueueItem(item, { autoplay });
+}
+
+async function jumpToQueueIndex(index, { autoplay = true } = {}) {
+  const item = queueController.jumpTo(index);
+  if (!item) return;
+  await loadQueueItem(item, { autoplay });
+}
+
+function clearQueueAndPlayback() {
+  queueController.clear();
+  playbackSession.activeTrackId = null;
+  resetTrackTransitionState();
+  audioEngine.unload();
+  renderQueueList();
+  renderScrubber(audioEngine.getPlaybackState());
+}
+
 function runFrame() {
   const analysisFrame = analysisEngine.tick();
   const bandSnapshot = analysisFrame?.bands;
@@ -160,8 +345,14 @@ function runFrame() {
     statusViewModel.setDominantBand(bandSnapshot.dominant);
   }
 
+  if (analysisFrame?.channels?.C?.waveform?.length) {
+    playbackSession.scrubberWaveform = analysisFrame.channels.C.waveform;
+  }
+
   visualizationEngine.tick({ analysisFrame });
   bandHudPresenter.present(bandSnapshot);
+
+  renderScrubber(audioEngine.getPlaybackState());
 }
 
 async function handleShareLink(updateDebug) {
@@ -211,10 +402,48 @@ function wirePresetButtons(applyAll) {
   updateDebug('ready.');
 }
 
+function wireScrubberInteractions() {
+  if (!ui.waveformScrubberCanvas) return;
+
+  const seekFromClientX = (clientX) => {
+    const playbackState = audioEngine.getPlaybackState();
+    if (!playbackState.hasSource || !Number.isFinite(playbackState.durationSeconds) || playbackState.durationSeconds <= 0) {
+      return;
+    }
+
+    const rect = ui.waveformScrubberCanvas.getBoundingClientRect();
+    if (rect.width <= 0) return;
+
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    audioEngine.seekTo(playbackState.durationSeconds * ratio);
+    controlsViewModel.projectFromPlayback(audioEngine.getPlaybackState());
+    renderScrubber(audioEngine.getPlaybackState());
+  };
+
+  ui.waveformScrubberCanvas.addEventListener('mousedown', (event) => {
+    playbackSession.isScrubbing = true;
+    seekFromClientX(event.clientX);
+  });
+
+  window.addEventListener('mousemove', (event) => {
+    if (!playbackSession.isScrubbing) return;
+    seekFromClientX(event.clientX);
+  });
+
+  window.addEventListener('mouseup', () => {
+    playbackSession.isScrubbing = false;
+  });
+
+  ui.waveformScrubberCanvas.addEventListener('click', (event) => {
+    seekFromClientX(event.clientX);
+  });
+}
+
 function wireAudioControls(applyAll) {
   const fileInput = document.createElement('input');
   fileInput.type = 'file';
   fileInput.accept = 'audio/*';
+  fileInput.multiple = true;
   fileInput.style.display = 'none';
   document.body.append(fileInput);
 
@@ -237,20 +466,87 @@ function wireAudioControls(applyAll) {
     fileInput.click();
   });
 
-  fileInput.addEventListener('change', async () => {
-    const file = fileInput.files?.[0];
-    if (!file) return;
+  ui.audioPrevButton?.addEventListener('click', () => {
+    void playQueueOffset({ direction: 'previous', autoplay: true });
+  });
 
-    audioEngine.loadFile(file);
-    controlsViewModel.projectFromPlayback(audioEngine.getPlaybackState());
+  ui.audioNextButton?.addEventListener('click', () => {
+    void playQueueOffset({ direction: 'next', autoplay: true });
+  });
 
-    try {
-      await audioEngine.play();
-    } catch {
-      // Browser autoplay rules may block immediate playback; the file still remains loaded.
+  ui.audioQueueToggle?.addEventListener('click', () => {
+    if (!ui.playlistPanel) return;
+    const shouldShow = ui.playlistPanel.hidden;
+    ui.playlistPanel.hidden = !shouldShow;
+    ui.playlistPanel.setAttribute('aria-hidden', String(!shouldShow));
+  });
+
+  ui.playlistShuffleToggle?.addEventListener('click', () => {
+    const queueState = queueController.getQueueState();
+    queueController.setShuffleEnabled(!queueState.shuffleEnabled);
+    const nextState = queueController.getQueueState();
+    ui.playlistShuffleToggle?.setAttribute('aria-pressed', String(nextState.shuffleEnabled));
+  });
+
+  ui.playlistClearButton?.addEventListener('click', () => {
+    clearQueueAndPlayback();
+  });
+
+  ui.queueListRegion?.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+
+    const jumpButton = target.closest('.queue-jump-target');
+    if (jumpButton instanceof HTMLElement) {
+      const index = Number(jumpButton.dataset.index);
+      if (Number.isInteger(index)) {
+        void jumpToQueueIndex(index, { autoplay: true });
+      }
+      return;
     }
 
-    controlsViewModel.projectFromPlayback(audioEngine.getPlaybackState());
+    const removeButton = target.closest('.queue-item-remove');
+    if (removeButton instanceof HTMLElement) {
+      const index = Number(removeButton.dataset.index);
+      if (!Number.isInteger(index)) return;
+
+      const queueStateBefore = queueController.getQueueState();
+      const wasActive = index === queueStateBefore.activeIndex;
+      queueController.removeAt(index);
+
+      const queueStateAfter = queueController.getQueueState();
+      if (!queueStateAfter.length) {
+        clearQueueAndPlayback();
+        return;
+      }
+
+      if (wasActive) {
+        const activeItem = queueStateAfter.items[queueStateAfter.activeIndex] ?? null;
+        if (activeItem) {
+          void loadQueueItem(activeItem, { autoplay: true });
+          return;
+        }
+      }
+
+      renderQueueList();
+    }
+  });
+
+  fileInput.addEventListener('change', async () => {
+    const files = Array.from(fileInput.files ?? []);
+    if (!files.length) return;
+
+    const queueItems = files.map((file) => createQueueItem(file));
+    const queueStateBefore = queueController.getQueueState();
+    const shouldAutoplayFirst = queueStateBefore.length === 0;
+
+    queueController.addItems(queueItems);
+    renderQueueList();
+
+    if (shouldAutoplayFirst) {
+      await jumpToQueueIndex(0, { autoplay: true });
+    }
+
     fileInput.value = '';
   });
 
@@ -270,6 +566,7 @@ function wireAudioControls(applyAll) {
   ui.audioStopButton?.addEventListener('click', () => {
     audioEngine.stop();
     controlsViewModel.projectFromPlayback(audioEngine.getPlaybackState());
+    renderScrubber(audioEngine.getPlaybackState());
   });
 
   window.addEventListener('beforeunload', () => {
@@ -302,6 +599,14 @@ if (ui.panelLaunchers?.length) {
     launcher.addEventListener('click', () => {
       const targetId = launcher.dataset.panelTarget;
       if (!targetId) return;
+      if (targetId === 'playlist-panel' || targetId === 'scrubber-panel') {
+        const panel = document.getElementById(targetId);
+        if (panel) {
+          panel.hidden = false;
+          panel.setAttribute('aria-hidden', 'false');
+        }
+        return;
+      }
       panelsViewModel.setPanelVisibility(targetId, true);
     });
   });
@@ -309,6 +614,7 @@ if (ui.panelLaunchers?.length) {
 
 wirePresetButtons(applyAll);
 wireAudioControls(applyAll);
+wireScrubberInteractions();
 wireSimulationControls({
   ui,
   onSettingsApplied() {
@@ -316,7 +622,14 @@ wireSimulationControls({
   },
 });
 
+const queueTemplate = document.getElementById('queue-item-template');
+if (queueTemplate) {
+  queueTemplate.remove();
+}
+
 applyAll();
+renderQueueList();
+renderScrubber(audioEngine.getPlaybackState());
 analysisEngine.start();
 visualizationEngine.start();
 syncSimulationStatusFromLifecycle();

@@ -1,0 +1,355 @@
+:root {
+  --panel-bg: rgba(17, 20, 26, 0.86);
+  --panel-border: rgba(255, 255, 255, 0.14);
+  --panel-text: #e8edf7;
+  --accent: #4da6ff;
+  --control-bg: #202733;
+  --control-height: 2.5rem;
+  --panel-radius: 0.75rem;
+  --panel-gap: 0.75rem;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  background: #05070b;
+  color: var(--panel-text);
+  font-family: Inter, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+}
+
+#app-shell {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+#render-surface-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  background: radial-gradient(circle at center, #121826 0%, #05070b 72%);
+}
+
+
+#render-surface-canvas.is-drop-active,
+#app-shell.is-drop-active {
+  outline: 2px dashed rgba(101, 220, 255, 0.95);
+  outline-offset: -0.5rem;
+}
+
+#render-surface-canvas.is-drop-active {
+  filter: brightness(1.08);
+}
+
+.panel {
+  position: absolute;
+  z-index: 5;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--panel-radius);
+  backdrop-filter: blur(6px);
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--panel-gap);
+  min-width: 12rem;
+}
+
+.panel[hidden] {
+  display: none;
+}
+
+
+.panel-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.panel-hide-control {
+  min-height: auto;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+.panel-section {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.5rem;
+  padding: 0.5rem;
+}
+
+h2,
+h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+h3 {
+  font-size: 0.82rem;
+  opacity: 0.92;
+}
+
+button,
+input,
+a {
+  min-height: var(--control-height);
+  border-radius: 0.5rem;
+}
+
+button,
+a {
+  background: var(--control-bg);
+  color: var(--panel-text);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  padding: 0.4rem 0.7rem;
+  text-decoration: none;
+}
+
+input[type='range'] {
+  width: 8rem;
+}
+
+#spectral-hud-panel {
+  top: 0.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(64rem, calc(100vw - 1.5rem));
+  max-height: 18vh;
+  overflow: auto;
+}
+
+#spectrum-256-canvas,
+#waveform-scrubber-canvas {
+  width: 100%;
+  height: 4.5rem;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 0.5rem;
+}
+
+#band-hud-dominant-line {
+  font-size: 0.8rem;
+  margin-bottom: 0.4rem;
+}
+
+#band-hud-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.76rem;
+}
+
+#band-hud-table th,
+#band-hud-table td {
+  text-align: left;
+  padding: 0.2rem 0.3rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+#band-hud-table tr.is-dominant {
+  color: var(--accent);
+}
+
+#simulation-controls-panel {
+  top: 0.75rem;
+  left: 0.75rem;
+  width: 18rem;
+  max-height: calc(100vh - 14rem);
+  overflow: auto;
+}
+
+#render-camera-channel-panel {
+  top: 0.75rem;
+  right: 0.75rem;
+  width: 19rem;
+  max-height: calc(100vh - 14rem);
+  overflow: auto;
+}
+
+#playlist-panel {
+  right: 0.75rem;
+  bottom: 14.25rem;
+  width: 19rem;
+  max-height: 34vh;
+  overflow: auto;
+}
+
+#status-panel {
+  right: 0.75rem;
+  bottom: 0.75rem;
+  width: 19rem;
+  max-height: 12.5rem;
+  overflow: auto;
+}
+
+#queue-list-region {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.queue-item {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.queue-jump-target {
+  flex: 1;
+}
+
+#scrubber-panel {
+  left: 0.75rem;
+  right: 0.75rem;
+  bottom: 5.5rem;
+}
+
+#scrubber-main-row,
+#audio-controls-row,
+#recording-controls-row,
+#playlist-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+#audio-control-panel {
+  left: 0.75rem;
+  right: 0.75rem;
+  bottom: 0.75rem;
+}
+
+#panel-launcher-strip {
+  position: absolute;
+  left: 0.75rem;
+  bottom: 12.8rem;
+  z-index: 6;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  max-width: min(70vw, 40rem);
+}
+
+.panel-launcher {
+  background: rgba(8, 12, 18, 0.92);
+  border-style: dashed;
+}
+
+@media (max-width: 1024px) {
+  #simulation-controls-panel,
+  #render-camera-channel-panel,
+  #playlist-panel,
+  #status-panel {
+    position: static;
+    width: auto;
+    max-height: none;
+  }
+
+  #app-shell {
+    overflow-y: auto;
+    padding: 0.75rem;
+    display: grid;
+    grid-template-areas:
+      'hud'
+      'sim'
+      'render'
+      'playlist'
+      'status'
+      'scrubber'
+      'audio';
+    gap: 0.75rem;
+  }
+
+  #render-surface-canvas {
+    position: fixed;
+  }
+
+  #spectral-hud-panel {
+    position: static;
+    transform: none;
+    width: auto;
+    grid-area: hud;
+  }
+
+  #simulation-controls-panel { grid-area: sim; }
+  #render-camera-channel-panel { grid-area: render; }
+  #playlist-panel { grid-area: playlist; }
+  #status-panel { grid-area: status; }
+  #scrubber-panel {
+    position: static;
+    grid-area: scrubber;
+  }
+  #audio-control-panel {
+    position: static;
+    grid-area: audio;
+  }
+
+  #panel-launcher-strip {
+    position: static;
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  :root {
+    --control-height: 2.75rem;
+  }
+
+  .panel {
+    padding: 0.6rem;
+  }
+
+  #scrubber-time-display,
+  #audio-status-text-region,
+  #recording-status-text-region {
+    width: 100%;
+  }
+
+  input[type='range'] {
+    width: 100%;
+  }
+}
+
+
+#preset-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+#preset-debug-line {
+  font-size: 0.8rem;
+  opacity: 0.9;
+  min-height: 1.2rem;
+}
+
+.control-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.control-label {
+  font-size: 0.8rem;
+}
+
+.control-value {
+  min-width: 4.2rem;
+  text-align: right;
+  font-size: 0.72rem;
+  opacity: 0.85;
+}

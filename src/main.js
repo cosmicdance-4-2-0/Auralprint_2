@@ -11,11 +11,14 @@ import {
 } from './presets/urlPreset.js';
 import { patchPreferences, preferences, resetPreferences, runtime, setPreferences } from './core/preferences.js';
 import { createAudioEngine } from './audio/audioEngine.js';
+import { createDecodeGateway } from './io/decode/decodeGateway.js';
+import { createPlaybackGateway } from './io/playback/playbackGateway.js';
 import { wireSimulationControls } from './ui/controls/wireSimulationControls.js';
 import { createBandHudPresenter } from './ui/hud/bandHudPresenter.js';
 import { createCaptureGateway } from './io/capture/captureGateway.js';
 import { createExportGateway } from './io/export/exportGateway.js';
 import { createRecordingController } from './domain/recording/recordingController.js';
+import { createTransportController } from './domain/transport/transportController.js';
 
 const appLifecycle = createAppLifecycle();
 const bootstrapResult = bootstrapApplication({ appLifecycle });
@@ -42,8 +45,11 @@ const playbackSession = {
   isScrubbing: false,
 };
 
+let transportController;
+
 const audioEngine = createAudioEngine({
   onStatusChange(status) {
+    transportController?.handlePlaybackStatus(status);
     statusViewModel.setAudioStatus(status);
     controlsViewModel.setAudioStatus(status);
 
@@ -52,6 +58,10 @@ const audioEngine = createAudioEngine({
     }
   },
 });
+
+const decodeGateway = createDecodeGateway();
+const playbackGateway = createPlaybackGateway({ audioEngine });
+transportController = createTransportController({ playbackGateway });
 
 analysisEngine.bindAudioEngine(audioEngine);
 visualizationEngine.bindCanvas(ui.renderSurfaceCanvas);
@@ -266,7 +276,7 @@ function applyLiveSettings() {
     ui.renderSurfaceCanvas.style.background = settings.visuals.backgroundColor;
   }
 
-  controlsViewModel.projectFromPlayback(audioEngine.getPlaybackState());
+  controlsViewModel.projectFromPlayback(transportController.getPlaybackState());
 }
 
 function performSimulationReset() {
@@ -279,11 +289,12 @@ function resetTrackTransitionState() {
   playbackSession.scrubberWaveform = new Float32Array(0);
 }
 
-function createQueueItem(file) {
+function createQueueItem(file, metadata = null) {
   return {
     id: `track-${playbackSession.itemIdCounter += 1}`,
     file,
-    title: file?.name || 'Untitled track',
+    title: metadata?.name || file?.name || 'Untitled track',
+    metadata,
   };
 }
 
@@ -326,7 +337,7 @@ function renderQueueList() {
     ui.queueListRegion.append(row);
   });
 
-  controlsViewModel.projectFromPlayback(audioEngine.getPlaybackState());
+  controlsViewModel.projectFromPlayback(transportController.getPlaybackState());
 }
 
 async function loadQueueItem(item, { autoplay = true } = {}) {
@@ -335,18 +346,10 @@ async function loadQueueItem(item, { autoplay = true } = {}) {
   playbackSession.activeTrackId = item.id;
   resetTrackTransitionState();
 
-  audioEngine.loadFile(item.file);
+  await transportController.loadSource(item, { autoplay });
   applyLiveSettings();
 
-  if (autoplay) {
-    try {
-      await audioEngine.play();
-    } catch {
-      // Browser autoplay policy may block this.
-    }
-  }
-
-  controlsViewModel.projectFromPlayback(audioEngine.getPlaybackState());
+  controlsViewModel.projectFromPlayback(transportController.getPlaybackState());
   renderQueueList();
 }
 
@@ -366,9 +369,9 @@ function clearQueueAndPlayback() {
   queueController.clear();
   playbackSession.activeTrackId = null;
   resetTrackTransitionState();
-  audioEngine.unload();
+  transportController.unload();
   renderQueueList();
-  renderScrubber(audioEngine.getPlaybackState());
+  renderScrubber(transportController.getPlaybackState());
 }
 
 function runFrame() {
@@ -385,7 +388,7 @@ function runFrame() {
   visualizationEngine.tick({ analysisFrame });
   bandHudPresenter.present(bandSnapshot);
 
-  renderScrubber(audioEngine.getPlaybackState());
+  renderScrubber(transportController.getPlaybackState());
 }
 
 async function handleShareLink(updateDebug) {
@@ -439,7 +442,7 @@ function wireScrubberInteractions() {
   if (!ui.waveformScrubberCanvas) return;
 
   const seekFromClientX = (clientX) => {
-    const playbackState = audioEngine.getPlaybackState();
+    const playbackState = transportController.getPlaybackState();
     if (!playbackState.hasSource || !Number.isFinite(playbackState.durationSeconds) || playbackState.durationSeconds <= 0) {
       return;
     }
@@ -448,9 +451,9 @@ function wireScrubberInteractions() {
     if (rect.width <= 0) return;
 
     const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    audioEngine.seekTo(playbackState.durationSeconds * ratio);
-    controlsViewModel.projectFromPlayback(audioEngine.getPlaybackState());
-    renderScrubber(audioEngine.getPlaybackState());
+    transportController.seek(playbackState.durationSeconds * ratio);
+    controlsViewModel.projectFromPlayback(transportController.getPlaybackState());
+    renderScrubber(transportController.getPlaybackState());
   };
 
   ui.waveformScrubberCanvas.addEventListener('mousedown', (event) => {
@@ -589,7 +592,8 @@ function wireAudioControls(applyAll) {
     const files = Array.from(fileInput.files ?? []);
     if (!files.length) return;
 
-    const queueItems = files.map((file) => createQueueItem(file));
+    const decodeResult = await decodeGateway.decodeFiles(files);
+    const queueItems = decodeResult.accepted.map(({ file, metadata }) => createQueueItem(file, metadata));
     const queueStateBefore = queueController.getQueueState();
     const shouldAutoplayFirst = queueStateBefore.length === 0;
 
@@ -604,22 +608,22 @@ function wireAudioControls(applyAll) {
   });
 
   ui.audioPlayPauseButton?.addEventListener('click', async () => {
-    const playbackState = audioEngine.getPlaybackState();
+    const playbackState = transportController.getPlaybackState();
     if (!playbackState.hasSource) return;
 
     if (playbackState.status === 'playing') {
-      audioEngine.pause();
+      transportController.pause();
     } else {
-      await audioEngine.play();
+      await transportController.play();
     }
 
-    controlsViewModel.projectFromPlayback(audioEngine.getPlaybackState());
+    controlsViewModel.projectFromPlayback(transportController.getPlaybackState());
   });
 
   ui.audioStopButton?.addEventListener('click', () => {
-    audioEngine.stop();
-    controlsViewModel.projectFromPlayback(audioEngine.getPlaybackState());
-    renderScrubber(audioEngine.getPlaybackState());
+    transportController.stop();
+    controlsViewModel.projectFromPlayback(transportController.getPlaybackState());
+    renderScrubber(transportController.getPlaybackState());
   });
 
   window.addEventListener('beforeunload', () => {
@@ -684,7 +688,7 @@ if (queueTemplate) {
 
 applyAll();
 renderQueueList();
-renderScrubber(audioEngine.getPlaybackState());
+renderScrubber(transportController.getPlaybackState());
 renderRecordingState(recordingController.getRecordingState());
 analysisEngine.start();
 visualizationEngine.start();

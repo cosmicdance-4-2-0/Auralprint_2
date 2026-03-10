@@ -6,6 +6,11 @@ const WEBM_MIME_CANDIDATES = Object.freeze([
   'video/webm;codecs=vp8,opus',
   'video/webm;codecs=vp8',
 ]);
+const MP4_MIME_CANDIDATES = Object.freeze([
+  'video/mp4;codecs=avc1.64001f,mp4a.40.2',
+  'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+  'video/mp4',
+]);
 
 function canUseMimeType(mimeType) {
   if (typeof MediaRecorder === 'undefined') {
@@ -19,7 +24,7 @@ function canUseMimeType(mimeType) {
   return MediaRecorder.isTypeSupported(mimeType);
 }
 
-function resolveSupportedMimeType(preferredMimeTypes = WEBM_MIME_CANDIDATES) {
+function resolveSupportedMimeType(preferredMimeTypes = [...WEBM_MIME_CANDIDATES, ...MP4_MIME_CANDIDATES]) {
   for (const mimeType of preferredMimeTypes) {
     if (canUseMimeType(mimeType)) {
       return mimeType;

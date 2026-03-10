@@ -326,6 +326,12 @@ Manage capture lifecycle and export artifacts for Build 113 recording.
 - **Owns:** MediaRecorder instance, chunk buffers, active artifact URL(s).
 - **Does NOT own:** render loop scheduling, queue selection logic.
 
+### Recording MIME selection policy
+- Capture MIME selection is browser-dependent and is resolved by `captureGateway` via `MediaRecorder.isTypeSupported` when available.
+- Candidate order is deterministic: WebM candidates are attempted first, then MP4 candidates.
+- If no candidates can be validated, `video/webm` remains the canonical default.
+- The selected MIME type is passed through unchanged to `recordingController` and then to export artifact metadata.
+
 ---
 
 ## 13) App + Lifecycle (boot + loop + wiring)

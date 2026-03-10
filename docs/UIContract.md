@@ -64,9 +64,10 @@ No business logic is implemented in this layer.
   - `#record-download-action`
   - `#recording-status-text-region`
 
-Recording format policy note for future binding:
-- Prefer MP4 when browser support exists.
-- Fallback to WebM where MP4 is unavailable.
+Recording format policy note for current binding:
+- MIME type selection is browser-dependent and uses `MediaRecorder.isTypeSupported` when available.
+- WebM candidates are attempted first and remain canonical defaults.
+- MP4 candidates are optional fallbacks and are used only when WebM candidates are unavailable but MP4 is supported.
 
 ### 6) Audio control panel (bottom)
 - Panel: `#audio-control-panel`

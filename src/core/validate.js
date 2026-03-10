@@ -148,6 +148,14 @@ export function sanitizePreferences(input) {
   sanitized.audio.muted = typeof audioInput.muted === 'boolean' ? audioInput.muted : defaults.audio.muted;
   sanitized.audio.volume = clampToRange(audioInput.volume, CONFIG.ui.volume, defaults.audio.volume);
 
+  const recordingInput = isPlainObject(candidate.recording) ? candidate.recording : {};
+  sanitized.recording.captureFps = clampToRange(
+    recordingInput.captureFps,
+    limits.recording.captureFps,
+    defaults.recording.captureFps,
+  );
+  sanitized.recording.includeAudio = normalizeBoolean(recordingInput.includeAudio, defaults.recording.includeAudio);
+
   // Invariant: maintain ordered radial bounds for downstream systems.
   const orderedRadii = [sanitized.audio.minRadiusFrac, sanitized.audio.maxRadiusFrac].sort((a, b) => a - b);
   [sanitized.audio.minRadiusFrac, sanitized.audio.maxRadiusFrac] = orderedRadii;

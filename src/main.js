@@ -239,6 +239,14 @@ function renderRecordingState(recordingState) {
     ui.recordingStatusTextRegion.textContent = recordingState.statusText;
   }
 
+  if (ui.recordCaptureFpsInput) {
+    ui.recordCaptureFpsInput.value = String(runtime.settings.recording.captureFps);
+  }
+
+  if (ui.recordIncludeAudioToggle) {
+    ui.recordIncludeAudioToggle.checked = runtime.settings.recording.includeAudio;
+  }
+
   if (ui.recordStartButton) {
     ui.recordStartButton.disabled = !recordingState.canStart;
   }
@@ -488,11 +496,22 @@ function wireScrubberInteractions() {
   });
 }
 
-function wireRecordingControls() {
+function wireRecordingControls(applyAll) {
+  ui.recordCaptureFpsInput?.addEventListener('input', () => {
+    patchPreferences({ recording: { captureFps: Number(ui.recordCaptureFpsInput.value) } });
+    applyAll();
+  });
+
+  ui.recordIncludeAudioToggle?.addEventListener('change', () => {
+    patchPreferences({ recording: { includeAudio: ui.recordIncludeAudioToggle.checked } });
+    applyAll();
+  });
+
   ui.recordStartButton?.addEventListener('click', () => {
     recordingController.startRecording({
       canvasElement: ui.renderSurfaceCanvas,
       audioEngine,
+      settings: runtime.settings.recording,
     });
   });
 
@@ -720,7 +739,7 @@ if (ui.panelHideControls?.length) {
 wirePresetButtons(applyAll);
 wireAudioControls(applyAll);
 wireScrubberInteractions();
-wireRecordingControls();
+wireRecordingControls(applyAll);
 wireSimulationControls({
   ui,
   onSettingsApplied() {

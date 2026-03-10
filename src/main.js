@@ -23,6 +23,9 @@ import { createTransportController } from './domain/transport/transportControlle
 
 const SCRUBBER_KEYBOARD_SEEK_STEP_SECONDS = 5;
 const SCRUBBER_KEYBOARD_ACCELERATED_SEEK_STEP_SECONDS = 30;
+const RECORD_START_POLICY = Object.freeze({
+  requiresLoadedSource: true,
+});
 
 const appLifecycle = createAppLifecycle();
 const bootstrapResult = bootstrapApplication({ appLifecycle });
@@ -193,6 +196,11 @@ function renderControls(controlState) {
     ui.audioVolumeSlider.value = String(controlState.volumePercent);
   }
 
+  if (ui.recordStartButton) {
+    const recordingState = recordingController.getRecordingState();
+    ui.recordStartButton.disabled = !recordingState.canStart || !controlState.canRecord;
+  }
+
   const queueState = queueController.getQueueState();
   const hasMultipleTracks = queueState.length >= 2;
   if (ui.audioPrevButton) {
@@ -201,6 +209,26 @@ function renderControls(controlState) {
   if (ui.audioNextButton) {
     ui.audioNextButton.disabled = !hasMultipleTracks;
   }
+}
+
+function evaluateRecordStartPolicy(playbackState = {}) {
+  if (RECORD_START_POLICY.requiresLoadedSource && !playbackState.hasSource) {
+    return {
+      canRecord: false,
+      reason: 'Recording blocked: load an audio source before starting capture.',
+    };
+  }
+
+  return {
+    canRecord: true,
+    reason: '',
+  };
+}
+
+function projectControlsFromTransport(playbackState = transportController.getPlaybackState()) {
+  const policy = evaluateRecordStartPolicy(playbackState);
+  controlsViewModel.projectFromPlayback(playbackState, { canRecord: policy.canRecord });
+  return { playbackState, policy };
 }
 
 function renderPanelVisibility(panelState) {
@@ -247,7 +275,7 @@ function renderRecordingState(recordingState) {
   }
 
   if (ui.recordStartButton) {
-    ui.recordStartButton.disabled = !recordingState.canStart;
+    ui.recordStartButton.disabled = !recordingState.canStart || !controlsViewModel.getState().canRecord;
   }
 
   if (ui.recordStopButton) {
@@ -298,7 +326,7 @@ function applyLiveSettings() {
 
   spectrum256CanvasPresenter.configure(settings);
 
-  controlsViewModel.projectFromPlayback(transportController.getPlaybackState());
+  projectControlsFromTransport();
 }
 
 function performSimulationReset() {
@@ -359,7 +387,7 @@ function renderQueueList() {
     ui.queueListRegion.append(row);
   });
 
-  controlsViewModel.projectFromPlayback(transportController.getPlaybackState());
+  projectControlsFromTransport();
 }
 
 async function loadQueueItem(item, { autoplay = true } = {}) {
@@ -371,7 +399,7 @@ async function loadQueueItem(item, { autoplay = true } = {}) {
   await transportController.loadSource(item, { autoplay });
   applyLiveSettings();
 
-  controlsViewModel.projectFromPlayback(transportController.getPlaybackState());
+  projectControlsFromTransport();
   renderQueueList();
 }
 
@@ -475,7 +503,7 @@ function wireScrubberInteractions() {
 
     const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     transportController.seek(playbackState.durationSeconds * ratio);
-    controlsViewModel.projectFromPlayback(transportController.getPlaybackState());
+    projectControlsFromTransport();
     renderScrubber(transportController.getPlaybackState());
   };
 
@@ -510,6 +538,17 @@ function wireRecordingControls(applyAll) {
   });
 
   ui.recordStartButton?.addEventListener('click', () => {
+    const playbackState = transportController.getPlaybackState();
+    const policy = evaluateRecordStartPolicy(playbackState);
+    projectControlsFromTransport(playbackState);
+
+    if (!policy.canRecord) {
+      if (ui.recordingStatusTextRegion) {
+        ui.recordingStatusTextRegion.textContent = policy.reason;
+      }
+      return;
+    }
+
     recordingController.startRecording({
       canvasElement: ui.renderSurfaceCanvas,
       audioEngine,
@@ -684,12 +723,12 @@ function wireAudioControls(applyAll) {
       await transportController.play();
     }
 
-    controlsViewModel.projectFromPlayback(transportController.getPlaybackState());
+    projectControlsFromTransport();
   });
 
   ui.audioStopButton?.addEventListener('click', () => {
     transportController.stop();
-    controlsViewModel.projectFromPlayback(transportController.getPlaybackState());
+    projectControlsFromTransport();
     renderScrubber(transportController.getPlaybackState());
   });
 
@@ -793,7 +832,7 @@ appLifecycle.wireBaselineKeyboardShortcuts({
       : SCRUBBER_KEYBOARD_SEEK_STEP_SECONDS;
     const nextTimeSeconds = playbackState.currentTimeSeconds + (direction * seekStepSeconds);
     transportController.seek(nextTimeSeconds);
-    controlsViewModel.projectFromPlayback(transportController.getPlaybackState());
+    projectControlsFromTransport();
     renderScrubber(transportController.getPlaybackState());
   },
 });

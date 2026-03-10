@@ -22,7 +22,7 @@ export function createControlsViewModel() {
     }
   }
 
-  function projectFromPlayback(playbackState = {}) {
+  function projectFromPlayback(playbackState = {}, policy = {}) {
     const status = playbackState.status || state.audioStatus;
     const hasSource = Boolean(playbackState.hasSource);
     const isPlaying = status === 'playing';
@@ -34,7 +34,7 @@ export function createControlsViewModel() {
       canPlay: hasSource,
       canPause: hasSource && isPlaying,
       canStop: hasSource,
-      canRecord: hasSource,
+      canRecord: Boolean(policy.canRecord ?? hasSource),
       playButtonLabel: isPlaying ? 'Pause' : 'Play',
       loopPressed: Boolean(playbackState.loop),
       mutePressed: Boolean(playbackState.muted),
@@ -51,6 +51,8 @@ export function createControlsViewModel() {
       loop: state.loopPressed,
       muted: state.mutePressed,
       volume: state.volumePercent / 100,
+    }, {
+      canRecord: state.canRecord,
     });
   }
 

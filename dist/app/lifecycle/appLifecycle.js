@@ -23,7 +23,7 @@ export function createAppLifecycle() {
       resetCount: 0,
       lastResetAtMs: null,
     },
-    loopIntervalId: null,
+    loopRafId: null,
   };
 
   function start() {
@@ -31,24 +31,27 @@ export function createAppLifecycle() {
   }
 
   function stop() {
-    if (state.loopIntervalId !== null) {
-      window.clearInterval(state.loopIntervalId);
-      state.loopIntervalId = null;
+    if (state.loopRafId !== null) {
+      window.cancelAnimationFrame(state.loopRafId);
+      state.loopRafId = null;
     }
     state.phase = 'stopped';
   }
 
-  function startFrameLoop({ onFrame, intervalMs }) {
+  function startFrameLoop({ onFrame } = {}) {
     if (typeof onFrame !== 'function') return;
 
-    if (state.loopIntervalId !== null) {
-      window.clearInterval(state.loopIntervalId);
-      state.loopIntervalId = null;
+    if (state.loopRafId !== null) {
+      window.cancelAnimationFrame(state.loopRafId);
+      state.loopRafId = null;
     }
 
-    state.loopIntervalId = window.setInterval(() => {
-      onFrame();
-    }, intervalMs);
+    const tick = (timestamp) => {
+      onFrame(timestamp);
+      state.loopRafId = window.requestAnimationFrame(tick);
+    };
+
+    state.loopRafId = window.requestAnimationFrame(tick);
   }
 
   function toggleSimulationPaused() {
@@ -68,7 +71,15 @@ export function createAppLifecycle() {
     };
   }
 
-  function wireBaselineKeyboardShortcuts({ host = window, scopeElement = document.body, onTogglePanels, onPauseToggle, onReset } = {}) {
+  function wireBaselineKeyboardShortcuts({
+    host = window,
+    scopeElement = document.body,
+    onTogglePanels,
+    onPauseToggle,
+    onReset,
+    onQueueNavigate,
+    onSeekRelative,
+  } = {}) {
     host.addEventListener('keydown', (event) => {
       if (event.defaultPrevented || event.repeat) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
@@ -80,7 +91,8 @@ export function createAppLifecycle() {
         }
       }
 
-      if (isInteractiveTarget(event.target)) return;
+      const activeElement = document.activeElement;
+      if (isInteractiveTarget(event.target) || isInteractiveTarget(activeElement)) return;
 
       if (event.code === 'Space') {
         event.preventDefault();
@@ -97,6 +109,25 @@ export function createAppLifecycle() {
 
       if (event.code === 'KeyH') {
         onTogglePanels?.();
+        return;
+      }
+
+      if (event.code === 'KeyN') {
+        event.preventDefault();
+        onQueueNavigate?.({ direction: 'next' });
+        return;
+      }
+
+      if (event.code === 'KeyP') {
+        event.preventDefault();
+        onQueueNavigate?.({ direction: 'previous' });
+        return;
+      }
+
+      if (event.code === 'ArrowLeft' || event.code === 'ArrowRight') {
+        event.preventDefault();
+        const direction = event.code === 'ArrowRight' ? 1 : -1;
+        onSeekRelative?.({ direction, accelerated: event.shiftKey });
       }
     });
   }

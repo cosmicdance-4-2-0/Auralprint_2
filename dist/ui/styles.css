@@ -39,6 +39,17 @@ body {
   background: radial-gradient(circle at center, #121826 0%, #05070b 72%);
 }
 
+
+#render-surface-canvas.is-drop-active,
+#app-shell.is-drop-active {
+  outline: 2px dashed rgba(101, 220, 255, 0.95);
+  outline-offset: -0.5rem;
+}
+
+#render-surface-canvas.is-drop-active {
+  filter: brightness(1.08);
+}
+
 .panel {
   position: absolute;
   z-index: 5;
@@ -55,6 +66,20 @@ body {
 
 .panel[hidden] {
   display: none;
+}
+
+
+.panel-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.panel-hide-control {
+  min-height: auto;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.75rem;
 }
 
 .panel-section {

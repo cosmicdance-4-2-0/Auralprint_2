@@ -40,6 +40,8 @@ export const UI_ELEMENT_IDS = Object.freeze({
   scrubberPanel: 'scrubber-panel',
   waveformScrubberCanvas: 'waveform-scrubber-canvas',
   scrubberTimeDisplay: 'scrubber-time-display',
+  recordCaptureFpsInput: 'record-capture-fps-input',
+  recordIncludeAudioToggle: 'record-include-audio-toggle',
   recordStartButton: 'record-start-button',
   recordStopButton: 'record-stop-button',
   recordDownloadAction: 'record-download-action',
@@ -103,6 +105,8 @@ export function getUIElements(root = document) {
     scrubberPanel: root.getElementById(UI_ELEMENT_IDS.scrubberPanel),
     waveformScrubberCanvas: root.getElementById(UI_ELEMENT_IDS.waveformScrubberCanvas),
     scrubberTimeDisplay: root.getElementById(UI_ELEMENT_IDS.scrubberTimeDisplay),
+    recordCaptureFpsInput: root.getElementById(UI_ELEMENT_IDS.recordCaptureFpsInput),
+    recordIncludeAudioToggle: root.getElementById(UI_ELEMENT_IDS.recordIncludeAudioToggle),
     recordStartButton: root.getElementById(UI_ELEMENT_IDS.recordStartButton),
     recordStopButton: root.getElementById(UI_ELEMENT_IDS.recordStopButton),
     recordDownloadAction: root.getElementById(UI_ELEMENT_IDS.recordDownloadAction),
@@ -127,6 +131,7 @@ export function getUIElements(root = document) {
     presetDebugLine: root.getElementById(UI_ELEMENT_IDS.presetDebugLine),
 
     panelLauncherStrip: root.getElementById(UI_ELEMENT_IDS.panelLauncherStrip),
-    panelLaunchers: Array.from(root.querySelectorAll('.panel-launcher'))
+    panelLaunchers: Array.from(root.querySelectorAll('.panel-launcher')),
+    panelHideControls: Array.from(root.querySelectorAll('.panel-hide-control'))
   };
 }

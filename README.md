@@ -177,6 +177,7 @@ Auralprint is a modular web application for audio playback/analysis/recording wh
 - Use packaged `portable/` artifact.
 - Open `portable/index.html` directly in a browser.
 - Behavior must not require local HTTP server.
+- Packaging parity note: `portable/index.html` is expected to expose the same runtime UI shell surface as hosted `dist/index.html` (including Build 112 queue/scrubber controls and Build 113 recording controls), with only local relative assets/modules for offline execution.
 
 ## Build 113 Definition of Done (verifiable)
 

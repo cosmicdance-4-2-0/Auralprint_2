@@ -9,11 +9,14 @@ const PORTABLE_DIR = path.join(PROJECT_ROOT, 'portable');
 const RUNTIME_PATHS = [
   'main.js',
   'app',
+  'audio',
+  'bands',
+  'core',
   'domain',
   'io',
-  'ui',
+  'presets',
   'shared',
-  'audio'
+  'ui'
 ];
 
 function runBuild() {

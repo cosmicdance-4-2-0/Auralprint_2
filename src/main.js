@@ -197,7 +197,8 @@ function renderControls(controlState) {
 function renderPanelVisibility(panelState) {
   const visibilityById = panelState.panelVisibility;
 
-  [ui.spectralHudPanel, ui.simulationControlsPanel, ui.audioControlPanel]
+  panelState.toggleablePanels
+    .map((panelId) => document.getElementById(panelId))
     .filter(Boolean)
     .forEach((panelElement) => {
       const isVisible = visibilityById[panelElement.id] !== false;
@@ -531,10 +532,9 @@ function wireAudioControls(applyAll) {
   });
 
   ui.audioQueueToggle?.addEventListener('click', () => {
-    if (!ui.playlistPanel) return;
-    const shouldShow = ui.playlistPanel.hidden;
-    ui.playlistPanel.hidden = !shouldShow;
-    ui.playlistPanel.setAttribute('aria-hidden', String(!shouldShow));
+    const panelState = panelsViewModel.getState();
+    const isVisible = panelState.panelVisibility['playlist-panel'] !== false;
+    panelsViewModel.setPanelVisibility('playlist-panel', !isVisible);
   });
 
   ui.playlistShuffleToggle?.addEventListener('click', () => {
@@ -657,15 +657,17 @@ if (ui.panelLaunchers?.length) {
     launcher.addEventListener('click', () => {
       const targetId = launcher.dataset.panelTarget;
       if (!targetId) return;
-      if (targetId === 'playlist-panel' || targetId === 'scrubber-panel') {
-        const panel = document.getElementById(targetId);
-        if (panel) {
-          panel.hidden = false;
-          panel.setAttribute('aria-hidden', 'false');
-        }
-        return;
-      }
       panelsViewModel.setPanelVisibility(targetId, true);
+    });
+  });
+}
+
+if (ui.panelHideControls?.length) {
+  ui.panelHideControls.forEach((hideControl) => {
+    hideControl.addEventListener('click', () => {
+      const targetId = hideControl.dataset.panelHideTarget;
+      if (!targetId) return;
+      panelsViewModel.setPanelVisibility(targetId, false);
     });
   });
 }

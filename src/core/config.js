@@ -58,6 +58,10 @@ const configDefinition = {
       panels: {
         spectralHudPanelVisible: true,
         simulationControlsPanelVisible: true,
+        renderCameraChannelPanelVisible: true,
+        playlistPanelVisible: true,
+        statusPanelVisible: true,
+        scrubberPanelVisible: true,
         audioControlPanelVisible: true,
       },
     },

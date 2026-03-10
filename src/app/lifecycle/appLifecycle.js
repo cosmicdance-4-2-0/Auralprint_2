@@ -80,7 +80,8 @@ export function createAppLifecycle() {
         }
       }
 
-      if (isInteractiveTarget(event.target)) return;
+      const activeElement = document.activeElement;
+      if (isInteractiveTarget(event.target) || isInteractiveTarget(activeElement)) return;
 
       if (event.code === 'Space') {
         event.preventDefault();

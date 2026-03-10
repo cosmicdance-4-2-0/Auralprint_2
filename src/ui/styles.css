@@ -57,6 +57,20 @@ body {
   display: none;
 }
 
+
+.panel-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.panel-hide-control {
+  min-height: auto;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.75rem;
+}
+
 .panel-section {
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 0.5rem;

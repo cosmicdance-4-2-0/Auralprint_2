@@ -15,6 +15,7 @@ import { createDecodeGateway } from './io/decode/decodeGateway.js';
 import { createPlaybackGateway } from './io/playback/playbackGateway.js';
 import { wireSimulationControls } from './ui/controls/wireSimulationControls.js';
 import { createBandHudPresenter } from './ui/hud/bandHudPresenter.js';
+import { createSpectrum256CanvasPresenter } from './ui/hud/spectrum256CanvasPresenter.js';
 import { createCaptureGateway } from './io/capture/captureGateway.js';
 import { createExportGateway } from './io/export/exportGateway.js';
 import { createRecordingController } from './domain/recording/recordingController.js';
@@ -69,6 +70,11 @@ visualizationEngine.bindCanvas(ui.renderSurfaceCanvas);
 const bandHudPresenter = createBandHudPresenter({
   tableBodyElement: ui.bandHudTableBody,
   dominantElement: ui.bandHudDominantLine,
+});
+
+const spectrum256CanvasPresenter = createSpectrum256CanvasPresenter({
+  canvasElement: ui.spectrum256Canvas,
+  panelElement: ui.spectrum256Region,
 });
 
 const captureGateway = createCaptureGateway();
@@ -277,6 +283,8 @@ function applyLiveSettings() {
     ui.renderSurfaceCanvas.style.background = settings.visuals.backgroundColor;
   }
 
+  spectrum256CanvasPresenter.configure(settings);
+
   controlsViewModel.projectFromPlayback(transportController.getPlaybackState());
 }
 
@@ -388,6 +396,7 @@ function runFrame() {
 
   visualizationEngine.tick({ analysisFrame });
   bandHudPresenter.present(bandSnapshot);
+  spectrum256CanvasPresenter.present(bandSnapshot);
 
   renderScrubber(transportController.getPlaybackState());
 }

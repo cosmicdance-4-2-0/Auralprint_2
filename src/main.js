@@ -509,12 +509,33 @@ function wireRecordingControls() {
 }
 
 function wireAudioControls(applyAll) {
+  const dropSurfaceElement = ui.renderSurfaceCanvas ?? ui.appShell;
+  const DROP_ACTIVE_CLASS_NAME = 'is-drop-active';
+
   const fileInput = document.createElement('input');
   fileInput.type = 'file';
   fileInput.accept = 'audio/*';
   fileInput.multiple = true;
   fileInput.style.display = 'none';
   document.body.append(fileInput);
+
+  const processIncomingFiles = async (files) => {
+    if (!files.length) return;
+
+    const decodeResult = await decodeGateway.decodeFiles(files);
+    const queueItems = decodeResult.accepted.map(({ file, metadata }) => createQueueItem(file, metadata));
+    if (!queueItems.length) return;
+
+    const queueStateBefore = queueController.getQueueState();
+    const shouldAutoplayFirst = queueStateBefore.length === 0;
+
+    queueController.addItems(queueItems);
+    renderQueueList();
+
+    if (shouldAutoplayFirst) {
+      await jumpToQueueIndex(0, { autoplay: true });
+    }
+  };
 
   ui.audioLoopToggle?.addEventListener('click', () => {
     patchPreferences({ audio: { loop: !runtime.settings.audio.loop } });
@@ -602,21 +623,33 @@ function wireAudioControls(applyAll) {
 
   fileInput.addEventListener('change', async () => {
     const files = Array.from(fileInput.files ?? []);
-    if (!files.length) return;
-
-    const decodeResult = await decodeGateway.decodeFiles(files);
-    const queueItems = decodeResult.accepted.map(({ file, metadata }) => createQueueItem(file, metadata));
-    const queueStateBefore = queueController.getQueueState();
-    const shouldAutoplayFirst = queueStateBefore.length === 0;
-
-    queueController.addItems(queueItems);
-    renderQueueList();
-
-    if (shouldAutoplayFirst) {
-      await jumpToQueueIndex(0, { autoplay: true });
-    }
-
+    await processIncomingFiles(files);
     fileInput.value = '';
+  });
+
+  dropSurfaceElement?.addEventListener('dragover', (event) => {
+    event.preventDefault();
+    dropSurfaceElement.classList.add(DROP_ACTIVE_CLASS_NAME);
+  });
+
+  dropSurfaceElement?.addEventListener('dragleave', () => {
+    dropSurfaceElement.classList.remove(DROP_ACTIVE_CLASS_NAME);
+  });
+
+  dropSurfaceElement?.addEventListener('drop', (event) => {
+    event.preventDefault();
+    dropSurfaceElement.classList.remove(DROP_ACTIVE_CLASS_NAME);
+
+    const fileItems = Array.from(event.dataTransfer?.items ?? [])
+      .filter((item) => item.kind === 'file')
+      .map((item) => item.getAsFile())
+      .filter(Boolean);
+
+    const files = fileItems.length
+      ? fileItems
+      : Array.from(event.dataTransfer?.files ?? []);
+
+    void processIncomingFiles(files);
   });
 
   ui.audioPlayPauseButton?.addEventListener('click', async () => {

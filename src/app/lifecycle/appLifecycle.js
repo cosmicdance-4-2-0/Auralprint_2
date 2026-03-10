@@ -68,7 +68,15 @@ export function createAppLifecycle() {
     };
   }
 
-  function wireBaselineKeyboardShortcuts({ host = window, scopeElement = document.body, onTogglePanels, onPauseToggle, onReset } = {}) {
+  function wireBaselineKeyboardShortcuts({
+    host = window,
+    scopeElement = document.body,
+    onTogglePanels,
+    onPauseToggle,
+    onReset,
+    onQueueNavigate,
+    onSeekRelative,
+  } = {}) {
     host.addEventListener('keydown', (event) => {
       if (event.defaultPrevented || event.repeat) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
@@ -98,6 +106,25 @@ export function createAppLifecycle() {
 
       if (event.code === 'KeyH') {
         onTogglePanels?.();
+        return;
+      }
+
+      if (event.code === 'KeyN') {
+        event.preventDefault();
+        onQueueNavigate?.({ direction: 'next' });
+        return;
+      }
+
+      if (event.code === 'KeyP') {
+        event.preventDefault();
+        onQueueNavigate?.({ direction: 'previous' });
+        return;
+      }
+
+      if (event.code === 'ArrowLeft' || event.code === 'ArrowRight') {
+        event.preventDefault();
+        const direction = event.code === 'ArrowRight' ? 1 : -1;
+        onSeekRelative?.({ direction, accelerated: event.shiftKey });
       }
     });
   }

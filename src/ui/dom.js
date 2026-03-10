@@ -127,6 +127,7 @@ export function getUIElements(root = document) {
     presetDebugLine: root.getElementById(UI_ELEMENT_IDS.presetDebugLine),
 
     panelLauncherStrip: root.getElementById(UI_ELEMENT_IDS.panelLauncherStrip),
-    panelLaunchers: Array.from(root.querySelectorAll('.panel-launcher'))
+    panelLaunchers: Array.from(root.querySelectorAll('.panel-launcher')),
+    panelHideControls: Array.from(root.querySelectorAll('.panel-hide-control'))
   };
 }

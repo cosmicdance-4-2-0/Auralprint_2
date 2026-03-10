@@ -85,6 +85,22 @@ export function sanitizePreferences(input) {
     uiPanelsInput.simulationControlsPanelVisible,
     defaults.ui.panels.simulationControlsPanelVisible,
   );
+  sanitized.ui.panels.renderCameraChannelPanelVisible = normalizeBoolean(
+    uiPanelsInput.renderCameraChannelPanelVisible,
+    defaults.ui.panels.renderCameraChannelPanelVisible,
+  );
+  sanitized.ui.panels.playlistPanelVisible = normalizeBoolean(
+    uiPanelsInput.playlistPanelVisible,
+    defaults.ui.panels.playlistPanelVisible,
+  );
+  sanitized.ui.panels.statusPanelVisible = normalizeBoolean(
+    uiPanelsInput.statusPanelVisible,
+    defaults.ui.panels.statusPanelVisible,
+  );
+  sanitized.ui.panels.scrubberPanelVisible = normalizeBoolean(
+    uiPanelsInput.scrubberPanelVisible,
+    defaults.ui.panels.scrubberPanelVisible,
+  );
   sanitized.ui.panels.audioControlPanelVisible = normalizeBoolean(
     uiPanelsInput.audioControlPanelVisible,
     defaults.ui.panels.audioControlPanelVisible,

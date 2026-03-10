@@ -3,12 +3,20 @@ import { patchPreferences, preferences } from '../../core/preferences.js';
 const TOGGLEABLE_PANELS = Object.freeze([
   'spectral-hud-panel',
   'simulation-controls-panel',
+  'render-camera-channel-panel',
+  'playlist-panel',
+  'status-panel',
+  'scrubber-panel',
   'audio-control-panel',
 ]);
 
 const PREFERENCE_PATH_BY_PANEL_ID = Object.freeze({
   'spectral-hud-panel': ['ui', 'panels', 'spectralHudPanelVisible'],
   'simulation-controls-panel': ['ui', 'panels', 'simulationControlsPanelVisible'],
+  'render-camera-channel-panel': ['ui', 'panels', 'renderCameraChannelPanelVisible'],
+  'playlist-panel': ['ui', 'panels', 'playlistPanelVisible'],
+  'status-panel': ['ui', 'panels', 'statusPanelVisible'],
+  'scrubber-panel': ['ui', 'panels', 'scrubberPanelVisible'],
   'audio-control-panel': ['ui', 'panels', 'audioControlPanelVisible'],
 });
 

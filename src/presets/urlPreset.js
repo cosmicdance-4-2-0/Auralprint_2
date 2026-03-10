@@ -4,6 +4,8 @@ import { sanitizePreferences } from '../core/validate.js';
 export const PRESET_SCHEMA_VERSION = 1;
 
 const LEGACY_SCHEMA_VERSION = 0;
+const BUILD_111_CANONICAL_SCHEMA_VERSION = 6;
+const BUILD_111_SUPPORTED_SCHEMA_VERSIONS = new Set([6, 5, 4, 3]);
 
 function toBase64Url(bytes) {
   let binary = '';
@@ -62,17 +64,37 @@ function migratePayloadToCurrentSchema(payload) {
     return { ok: false, preferences: null, reason: 'Preset payload is invalid.' };
   }
 
-  if (!Number.isInteger(payload.schema)) {
-    // Build 111 compatibility path: hash payloads that encoded preferences directly.
-    return { ok: true, preferences: payload, reason: 'Preset migrated from legacy schema.' };
-  }
+  const schema = payload.schema;
 
-  if (payload.schema === PRESET_SCHEMA_VERSION) {
+  if (schema === PRESET_SCHEMA_VERSION) {
     return { ok: true, preferences: payload.preferences, reason: 'Preset decoded.' };
   }
 
-  if (payload.schema === LEGACY_SCHEMA_VERSION) {
+  if (schema === LEGACY_SCHEMA_VERSION) {
     return { ok: true, preferences: payload.preferences, reason: 'Preset migrated from legacy schema.' };
+  }
+
+  // Build 111 canonical wrapper: { schema: 6, prefs: { ... } }
+  // Build 111 also accepted inbound v3-v5 wrappers for compatibility.
+  if (Number.isInteger(schema) && BUILD_111_SUPPORTED_SCHEMA_VERSIONS.has(schema)) {
+    if (payload.prefs && typeof payload.prefs === 'object') {
+      return { ok: true, preferences: payload.prefs, reason: 'Preset migrated from legacy schema.' };
+    }
+    return { ok: false, preferences: null, reason: 'Preset payload is invalid.' };
+  }
+
+  // Legacy wrapper without explicit schema occasionally appears in copied payloads.
+  if (payload.prefs && typeof payload.prefs === 'object' && !Number.isInteger(schema)) {
+    return {
+      ok: true,
+      preferences: payload.prefs,
+      reason: `Preset migrated from Build ${BUILD_111_CANONICAL_SCHEMA_VERSION} wrapper.`,
+    };
+  }
+
+  // Legacy unwrapped payloads encoded preferences directly.
+  if (!Number.isInteger(schema)) {
+    return { ok: true, preferences: payload, reason: 'Preset migrated from legacy schema.' };
   }
 
   return { ok: false, preferences: null, reason: `Unsupported schema v${payload.schema}.` };

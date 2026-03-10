@@ -97,6 +97,23 @@ Recording format policy note for current binding:
 - Launcher buttons: `.panel-launcher`
 - Contract: each launcher must include `data-panel-target="<panel-id>"` for restore mapping.
 
+
+## Build 111 compatibility note (panel semantics → current IDs)
+
+To preserve Build 111 hide/show ergonomics, semantic panel groupings map to current DOM IDs as follows:
+
+| Build 111 semantic panel | Current panel ID(s) |
+|---|---|
+| `audio` | `#audio-control-panel`, `#playlist-panel`, `#scrubber-panel` |
+| `sim` | `#simulation-controls-panel`, `#render-camera-channel-panel` |
+| `bands` | `#spectral-hud-panel`, `#status-panel` |
+
+Launcher behavior compatibility contract:
+- Hiding a panel must reveal its launcher button (`.panel-launcher[data-panel-target="<panel-id>"]`).
+- Activating a launcher must restore the target panel and hide that launcher button.
+- Launcher strip `#panel-launcher-strip` is visible when **any** toggleable panel is hidden, and hidden when **all** are visible.
+- Global panel toggle (`H`) keeps the Build 111 rhythm: hide all when any are visible, restore all when all are hidden.
+
 ## Non-panel base regions
 - `#app-shell`: root layout container.
 - `#render-surface-canvas`: full viewport canvas.

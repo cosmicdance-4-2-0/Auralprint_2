@@ -13,6 +13,9 @@ import { patchPreferences, preferences, resetPreferences, runtime, setPreference
 import { createAudioEngine } from './audio/audioEngine.js';
 import { wireSimulationControls } from './ui/controls/wireSimulationControls.js';
 import { createBandHudPresenter } from './ui/hud/bandHudPresenter.js';
+import { createCaptureGateway } from './io/capture/captureGateway.js';
+import { createExportGateway } from './io/export/exportGateway.js';
+import { createRecordingController } from './domain/recording/recordingController.js';
 
 const appLifecycle = createAppLifecycle();
 const bootstrapResult = bootstrapApplication({ appLifecycle });
@@ -56,6 +59,14 @@ visualizationEngine.bindCanvas(ui.renderSurfaceCanvas);
 const bandHudPresenter = createBandHudPresenter({
   tableBodyElement: ui.bandHudTableBody,
   dominantElement: ui.bandHudDominantLine,
+});
+
+const captureGateway = createCaptureGateway();
+const exportGateway = createExportGateway({ host: window });
+const recordingController = createRecordingController({
+  captureGateway,
+  exportGateway,
+  onStateChange: renderRecordingState,
 });
 
 function createPresetDebugUpdater(debugElement) {
@@ -200,6 +211,28 @@ function renderPanelVisibility(panelState) {
     const hasVisibleLauncher = ui.panelLaunchers?.some((launcher) => !launcher.hidden);
     ui.panelLauncherStrip.hidden = !hasVisibleLauncher;
     ui.panelLauncherStrip.setAttribute('aria-hidden', String(!hasVisibleLauncher));
+  }
+}
+
+function renderRecordingState(recordingState) {
+  if (ui.recordingStatusTextRegion) {
+    ui.recordingStatusTextRegion.textContent = recordingState.statusText;
+  }
+
+  if (ui.recordStartButton) {
+    ui.recordStartButton.disabled = !recordingState.canStart;
+  }
+
+  if (ui.recordStopButton) {
+    ui.recordStopButton.disabled = !recordingState.canStop;
+  }
+
+  if (ui.recordDownloadAction) {
+    const downloadUrl = recordingState.artifact?.url ?? '';
+    ui.recordDownloadAction.href = downloadUrl || '#';
+    ui.recordDownloadAction.download = recordingState.artifact?.fileName || 'auralprint-capture.webm';
+    ui.recordDownloadAction.setAttribute('aria-disabled', String(!recordingState.canDownload));
+    ui.recordDownloadAction.tabIndex = recordingState.canDownload ? 0 : -1;
   }
 }
 
@@ -439,6 +472,26 @@ function wireScrubberInteractions() {
   });
 }
 
+function wireRecordingControls() {
+  ui.recordStartButton?.addEventListener('click', () => {
+    recordingController.startRecording({
+      canvasElement: ui.renderSurfaceCanvas,
+      audioEngine,
+    });
+  });
+
+  ui.recordStopButton?.addEventListener('click', () => {
+    recordingController.stopRecording();
+  });
+
+  ui.recordDownloadAction?.addEventListener('click', (event) => {
+    const recordingState = recordingController.getRecordingState();
+    if (!recordingState.canDownload) {
+      event.preventDefault();
+    }
+  });
+}
+
 function wireAudioControls(applyAll) {
   const fileInput = document.createElement('input');
   fileInput.type = 'file';
@@ -573,6 +626,7 @@ function wireAudioControls(applyAll) {
     appLifecycle.stop();
     analysisEngine.stop();
     visualizationEngine.stop();
+    recordingController.dispose();
     void audioEngine.dispose();
     fileInput.remove();
   });
@@ -615,6 +669,7 @@ if (ui.panelLaunchers?.length) {
 wirePresetButtons(applyAll);
 wireAudioControls(applyAll);
 wireScrubberInteractions();
+wireRecordingControls();
 wireSimulationControls({
   ui,
   onSettingsApplied() {
@@ -630,6 +685,7 @@ if (queueTemplate) {
 applyAll();
 renderQueueList();
 renderScrubber(audioEngine.getPlaybackState());
+renderRecordingState(recordingController.getRecordingState());
 analysisEngine.start();
 visualizationEngine.start();
 syncSimulationStatusFromLifecycle();

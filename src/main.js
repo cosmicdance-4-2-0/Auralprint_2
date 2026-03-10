@@ -797,5 +797,4 @@ appLifecycle.wireBaselineKeyboardShortcuts({
 
 appLifecycle.startFrameLoop({
   onFrame: runFrame,
-  intervalMs: bandHudPresenter.refreshIntervalMs,
 });

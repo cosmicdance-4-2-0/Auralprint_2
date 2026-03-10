@@ -23,7 +23,7 @@ export function createAppLifecycle() {
       resetCount: 0,
       lastResetAtMs: null,
     },
-    loopIntervalId: null,
+    loopRafId: null,
   };
 
   function start() {
@@ -31,24 +31,27 @@ export function createAppLifecycle() {
   }
 
   function stop() {
-    if (state.loopIntervalId !== null) {
-      window.clearInterval(state.loopIntervalId);
-      state.loopIntervalId = null;
+    if (state.loopRafId !== null) {
+      window.cancelAnimationFrame(state.loopRafId);
+      state.loopRafId = null;
     }
     state.phase = 'stopped';
   }
 
-  function startFrameLoop({ onFrame, intervalMs }) {
+  function startFrameLoop({ onFrame } = {}) {
     if (typeof onFrame !== 'function') return;
 
-    if (state.loopIntervalId !== null) {
-      window.clearInterval(state.loopIntervalId);
-      state.loopIntervalId = null;
+    if (state.loopRafId !== null) {
+      window.cancelAnimationFrame(state.loopRafId);
+      state.loopRafId = null;
     }
 
-    state.loopIntervalId = window.setInterval(() => {
-      onFrame();
-    }, intervalMs);
+    const tick = (timestamp) => {
+      onFrame(timestamp);
+      state.loopRafId = window.requestAnimationFrame(tick);
+    };
+
+    state.loopRafId = window.requestAnimationFrame(tick);
   }
 
   function toggleSimulationPaused() {

@@ -30,6 +30,22 @@ function resolveSupportedMimeType(preferredMimeTypes = WEBM_MIME_CANDIDATES) {
 
 /** Public interface for capture stream setup and teardown. */
 export function createCaptureGateway() {
+  function isCaptureSupported({ canvasElement } = {}) {
+    if (typeof MediaRecorder === 'undefined') {
+      return { supported: false, reason: 'MediaRecorder API is unavailable.' };
+    }
+
+    if (!(canvasElement instanceof HTMLCanvasElement)) {
+      return { supported: false, reason: 'A render canvas is required for capture.' };
+    }
+
+    if (typeof canvasElement.captureStream !== 'function') {
+      return { supported: false, reason: 'canvas.captureStream is unavailable.' };
+    }
+
+    return { supported: true, reason: null };
+  }
+
   function createCaptureStream({
     canvasElement,
     audioTapStream = null,
@@ -83,6 +99,7 @@ export function createCaptureGateway() {
   }
 
   return {
+    isCaptureSupported,
     createCaptureStream,
     releaseCaptureStream,
   };

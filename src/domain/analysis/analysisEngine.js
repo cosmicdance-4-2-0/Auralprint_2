@@ -1,12 +1,18 @@
 import { createBandBank } from '../../bands/bandBank.js';
 
-/** Analyzer frame production with BandBank-owned spectral math. */
-export function createAnalysisEngine() {
+/** Analyzer orchestrator over AudioEngine sampling and BandBank aggregation. */
+export function createAnalysisEngine({ audioEngine = null } = {}) {
   const bandBank = createBandBank({ sourceChannelId: 'C' });
   const state = {
+    audioEngine,
     audioSettings: null,
     latestFrame: null,
+    running: false,
   };
+
+  function bindAudioEngine(nextAudioEngine) {
+    state.audioEngine = nextAudioEngine ?? null;
+  }
 
   function configure({ audio, bands } = {}) {
     if (audio) {
@@ -42,16 +48,32 @@ export function createAnalysisEngine() {
     return state.latestFrame;
   }
 
+  function tick() {
+    if (!state.running || !state.audioEngine?.sampleAnalysisFrame) return state.latestFrame;
+    const audioFrame = state.audioEngine.sampleAnalysisFrame();
+    return consumeAudioFrame(audioFrame);
+  }
+
   function reset() {
     state.latestFrame = null;
     bandBank.reset();
   }
 
+  function start() {
+    state.running = true;
+  }
+
+  function stop() {
+    state.running = false;
+  }
+
   return {
     configure,
     reset,
-    start() {},
-    stop() {},
+    start,
+    stop,
+    tick,
+    bindAudioEngine,
     consumeAudioFrame,
     getLatestFrame() {
       return state.latestFrame;

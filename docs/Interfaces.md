@@ -163,54 +163,62 @@ Convert analysis frames to canonical 256-band representation and dominant-band s
 
 ---
 
-## 7) Sim (orbs + trails)
+## 7) AnalysisEngine (AudioEngine + BandBank orchestrator)
 
 ### Purpose
-Advance simulation state (orbs/trails) from band input and timing.
+Own analyzer orchestration: bind AudioEngine sampling to BandBank aggregation and produce the canonical analysis frame consumed by higher layers.
 
 ### Inputs / outputs
-- **Inputs:** `BandFrame`, frame delta/time, sim runtime settings.
-- **Outputs:** render-ready simulation snapshot (`SimFrame`).
+- **Inputs:** runtime analyzer settings and optional audio frame input.
+- **Outputs:** latest analysis frame `{ sampleRateHz, fftSize, channels, monoIsh, bands }`.
 
 ### Public API (signatures)
-- `createSim(config: SimConfig): SimEngine`
-- `step(input: SimStepInput): SimFrame`
-- `reset(reason: SimResetReason): void`
-- `getState(): SimState`
+- `createAnalysisEngine(deps?: { audioEngine?: AudioEngine | null }): AnalysisEngine`
+- `bindAudioEngine(audioEngine: AudioEngine | null): void`
+- `configure(settings: { audio?: AnalysisRuntimeSettings, bands?: BandRuntimeSettings }): void`
+- `start(): void`
+- `stop(): void`
+- `tick(): AnalysisFrame | null`
+- `consumeAudioFrame(frame: AnalysisFrame | null): AnalysisFrame | null`
+- `reset(): void`
+- `getLatestFrame(): AnalysisFrame | null`
 
 ### Events emitted / consumed
-- **Emits:** `simFrameReady`, `simReset`.
-- **Consumes:** `bandFrameReady`, `trackChanged`, `runtimeSettingsChanged`.
+- **Emits:** `analysisFrameReady` (via returned frame in current wiring).
+- **Consumes:** AudioEngine sampling + runtime settings updates.
 
 ### State owned
-- **Owns:** orb positions/velocities, trail buffers, sim clock accumulators.
-- **Does NOT own:** canvas context, encoded recording chunks.
+- **Owns:** analyzer running flag, BandBank instance, latest analyzed frame.
+- **Does NOT own:** playback controls or rendering behavior.
 
 ---
 
-## 8) Renderer (canvas draw)
+## 8) VisualizationEngine (Sim + Renderer orchestrator)
 
 ### Purpose
-Render `SimFrame` to canvas deterministically using runtime render settings.
+Own visualization orchestration: advance simulation from analysis data and route draw frames to renderer.
 
 ### Inputs / outputs
-- **Inputs:** `SimFrame`, viewport/canvas metrics, renderer settings.
-- **Outputs:** drawn frame side effects on canvas; optional draw telemetry.
+- **Inputs:** analysis frame + frame timing + visualization settings.
+- **Outputs:** latest visualization frame and renderer side-effects on canvas.
 
 ### Public API (signatures)
-- `createRenderer(canvas: HTMLCanvasElement, config: RendererConfig): Renderer`
-- `render(frame: SimFrame, timing: RenderTiming): RenderStats`
-- `resize(width: number, height: number, devicePixelRatio: number): void`
-- `clear(): void`
-- `dispose(): void`
+- `createVisualizationEngine(deps?: { simEngine?: SimEngine, rendererEngine?: RendererEngine }): VisualizationEngine`
+- `bindCanvas(canvas: HTMLCanvasElement | null): void`
+- `configure(settings: VisualizationRuntimeSettings): void`
+- `start(): void`
+- `stop(): void`
+- `tick(input: { analysisFrame?: AnalysisFrame, nowMs?: number }): SimFrame | null`
+- `reset(): void`
+- `getLatestFrame(): SimFrame | null`
 
 ### Events emitted / consumed
-- **Emits:** `frameRendered`, `rendererError`.
-- **Consumes:** `simFrameReady`, `viewportChanged`, `runtimeSettingsChanged`.
+- **Emits:** `simFrameReady`, `frameRendered` (via orchestrated sub-engines).
+- **Consumes:** `analysisFrameReady`, runtime settings updates.
 
 ### State owned
-- **Owns:** canvas/context handles and draw-only caches.
-- **Does NOT own:** simulation truth, audio transport state.
+- **Owns:** visualization running flag, latest sim/render frame, sim+renderer wiring.
+- **Does NOT own:** audio transport state.
 
 ---
 
@@ -320,10 +328,10 @@ Manage capture lifecycle and export artifacts for Build 113 recording.
 
 ---
 
-## 13) App (boot + loop + wiring)
+## 13) App + Lifecycle (boot + loop + wiring)
 
 ### Purpose
-Compose modules, enforce lifecycle order, and run/cancel main update loop.
+Compose modules, enforce lifecycle order, and own loop scheduling (including interval start/stop).
 
 ### Inputs / outputs
 - **Inputs:** module factories, config, DOM root, lifecycle events.
@@ -334,6 +342,7 @@ Compose modules, enforce lifecycle order, and run/cancel main update loop.
 - `boot(): Promise<void>`
 - `startLoop(): void`
 - `stopLoop(): void`
+- `startFrameLoop(config: { onFrame: () => void, intervalMs: number }): void`
 - `teardown(): Promise<void>`
 
 ### Events emitted / consumed
@@ -383,7 +392,7 @@ Compose modules, enforce lifecycle order, and run/cancel main update loop.
 
 ---
 
-## 11) AppActions (application-level event entry points)
+## 14) AppActions (application-level event entry points)
 
 ### Purpose
 Provide explicit top-level action handlers that apply preferences and enforce sim reset policy consistently.

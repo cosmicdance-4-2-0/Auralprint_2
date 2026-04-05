@@ -210,10 +210,11 @@ class AudioEngine:
 
     def poll_events(self):
         """Check for async events (track ended). Call once per frame from main thread."""
-        if self._ended_flag:
+        with self._lock:
+            ended = self._ended_flag
             self._ended_flag = False
-            if callable(self.on_track_ended):
-                self.on_track_ended()
+        if ended and callable(self.on_track_ended):
+            self.on_track_ended()
 
     def get_samples(self, n):
         """Return the most recent n center-channel samples, or None."""

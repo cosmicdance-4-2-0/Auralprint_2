@@ -120,8 +120,8 @@ class App:
 
             # Keyboard hint
             dpg.add_text(
-                "Keys: Space=play/pause  R=reset visuals  "
-                "\u2190/\u2192=seek \u00b15s  Shift+\u2190/\u2192=\u00b130s",
+                "Keys: Space=play/pause  P=sim pause  R=reset visuals  "
+                "\u2190/\u2192=seek \u00b15s  Shift=\u00b130s",
                 color=(255, 255, 255, 100),
             )
 
@@ -287,8 +287,25 @@ class App:
 
     # ── Callbacks: keyboard ───────────────────────────────────
 
+    # Tags of interactive widgets that should suppress global shortcuts when active.
+    _INTERACTIVE_TAGS = ("sld_volume", "chk_mute")
+
+    def _widget_is_active(self):
+        """Return True if any interactive widget has focus/is being adjusted."""
+        for tag in self._INTERACTIVE_TAGS:
+            try:
+                if dpg.is_item_active(tag) or dpg.is_item_focused(tag):
+                    return True
+            except Exception:
+                pass
+        return False
+
     def _on_key_press(self, sender, app_data):
         key = app_data
+
+        # Suppress global shortcuts when interactive widgets have focus
+        if self._widget_is_active():
+            return
 
         # Space: play/pause audio
         if key == dpg.mvKey_Spacebar:
@@ -307,14 +324,16 @@ class App:
             self._sim_paused = not self._sim_paused
             return
 
-        # Arrow keys: seek
+        # Arrow keys: seek (Shift = large step)
+        shift_held = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(dpg.mvKey_RShift)
+
         if key == dpg.mvKey_Right and self._audio.is_loaded:
-            step = SEEK_STEP_LARGE_SEC if dpg.is_key_down(dpg.mvKey_Shift) else SEEK_STEP_SEC
+            step = SEEK_STEP_LARGE_SEC if shift_held else SEEK_STEP_SEC
             self._audio.seek(self._audio.position + step)
             return
 
         if key == dpg.mvKey_Left and self._audio.is_loaded:
-            step = SEEK_STEP_LARGE_SEC if dpg.is_key_down(dpg.mvKey_Shift) else SEEK_STEP_SEC
+            step = SEEK_STEP_LARGE_SEC if shift_held else SEEK_STEP_SEC
             self._audio.seek(self._audio.position - step)
             return
 

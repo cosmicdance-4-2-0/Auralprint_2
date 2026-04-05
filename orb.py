@@ -1,12 +1,12 @@
 """Orb — a spectral analysis point that orbits, pulsates, and emits particles.
 
 Interface (stable):
-    step(dt, now_sec, energy, color_fn)         — advance simulation
+    step(dt, now_sec, energy, color_fn, waveform=None)  — advance simulation
     snapshot(now_sec, bg_color, line_color) -> OrbFrame  — build render-ready data
-    reset()                                     — clear trail, reset to start angle
-    last_particle_color                         — (r,g,b) of newest particle, or None
-    channel: str                                — 'L', 'R', or 'C' (read-only)
-    angle: float                                — current orbital angle (read-only)
+    reset()                                              — clear trail, reset to start angle
+    last_particle_color                                  — (r,g,b) of newest particle, or None
+    channel: str                                         — 'L', 'R', or 'C' (read-only)
+    angle: float                                         — current orbital angle (read-only)
 """
 
 import math
@@ -19,6 +19,7 @@ ANGULAR_SPEED = math.pi * 0.75       # rad/s
 MIN_RADIUS_FRAC = 0.01
 MAX_RADIUS_FRAC = 0.80
 RMS_GAIN = 2.0
+WF_DISP_FRAC = 0.18                  # waveform displacement as fraction of base radius
 EMIT_RATE = 180                       # particles per second
 SIZE_MAX_PX = 8.0
 SIZE_MIN_PX = 1.0
@@ -77,6 +78,19 @@ class _Particle:
         self.b = b
 
 
+# ── Waveform sampling ─────────────────────────────────────────
+
+
+def _sample_waveform(waveform, angle_rad):
+    """Sample the time-domain waveform at the given orbital angle.
+
+    Maps the angle (0–TAU) to a waveform index. Returns the sample value.
+    """
+    phase01 = ((angle_rad % TAU) + TAU) % TAU / TAU
+    idx = int(phase01 * (len(waveform) - 1))
+    return float(waveform[min(idx, len(waveform) - 1)])
+
+
 # ── Orb ────────────────────────────────────────────────────────
 
 
@@ -124,23 +138,36 @@ class Orb:
         p = self._particles[-1]
         return (p.r, p.g, p.b)
 
-    def step(self, dt, now_sec, energy, color_fn):
+    def step(self, dt, now_sec, energy, color_fn, waveform=None):
         """Advance the orb simulation by dt seconds.
 
         Args:
             dt:        frame delta in seconds.
             now_sec:   monotonic clock for particle birth timestamps.
-            energy:    0.0–1.0 analysis energy (drives radius).
+            energy:    0.0–1.0 analysis energy (drives base radius).
             color_fn:  callable(angle_rad) -> (r, g, b), determines particle color.
+            waveform:  float32 1-D array of time-domain samples for radial
+                       displacement, or None. Should be the orb's own channel.
         """
         dt = min(dt, MAX_DT)
 
         # Advance orbit
         self._angle = (self._angle + self._chirality * ANGULAR_SPEED * dt) % TAU
 
-        # Radius from energy
+        # Base radius from energy
         e = max(0.0, min(energy, 1.0))
-        self._radius = self._min_radius + (self._max_radius - self._min_radius) * e
+        base_radius = self._min_radius + (self._max_radius - self._min_radius) * e
+
+        # Waveform displacement: sample the time-domain signal at the current
+        # orbital angle. The displacement is a signed fraction of the base radius,
+        # so the orb breathes outward on positive samples and inward on negative.
+        if waveform is not None and len(waveform) > 0:
+            sample = _sample_waveform(waveform, self._angle)
+            displacement = base_radius * WF_DISP_FRAC * sample
+        else:
+            displacement = 0.0
+
+        self._radius = base_radius + displacement
 
         # Position in sim space
         self._x = self._radius * math.cos(self._angle)

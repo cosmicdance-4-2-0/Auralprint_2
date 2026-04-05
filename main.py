@@ -1,21 +1,17 @@
-"""Auralprint2 v0.1.3 — Color System
+"""Auralprint2 v0.1.4 — Waveform Displacement
 
-Particle color sources: fixed, dominant band, angle (glitch mode).
-Line color modes: fixed, last particle, dominant band.
-All color derivation via ColorPolicy module.
+Each orb's radial position is displaced by the time-domain
+waveform at its current orbital angle — sampled from the orb's
+own channel (L or R). The displacement is a signed fraction of
+the base radius (WF_DISP_FRAC = 0.18), so the orb breathes
+outward on positive samples and inward on negative.
 
-Change PARTICLE_COLOR_MODE in colors.py to switch:
-  "fixed"    — white particles (or whatever FIXED_PARTICLE_COLOR is set to).
-  "dominant" — particles take the color of the loudest band.
-  "angle"    — particles take the color of the band at their birth angle.
-               Each particle is colored independently. Rainbow trails.
+Combined with the overlay ring's waveform displacement (added
+in v0.1.2), every visual element now responds to the raw audio
+signal as well as the spectral analysis. The organic breathing
+quality is complete.
 
-Change LINE_COLOR_MODE in colors.py to switch:
-  "fixed"         — trail lines match the fixed particle color.
-  "lastParticle"  — trail lines match the newest particle's color.
-  "dominantBand"  — trail lines match the dominant band's color.
-
-Band spacing: hybrid (ERB).
+Phase 2 complete: it looks and feels like Auralprint.
 """
 
 import math

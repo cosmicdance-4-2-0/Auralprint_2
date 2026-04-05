@@ -120,16 +120,20 @@ class App:
         if channels is not None:
             self._last_stereo = channels.is_stereo
             analysis_c = self._analyzer.process(channels.center)
-            waveform = channels.center
             channel_rms = {
                 "L": _rms(channels.left),
                 "R": _rms(channels.right),
                 "C": _rms(channels.center),
             }
+            channel_waveforms = {
+                "L": channels.left,
+                "R": channels.right,
+                "C": channels.center,
+            }
         else:
             analysis_c = None
-            waveform = None
             channel_rms = {"L": 0.0, "R": 0.0, "C": 0.0}
+            channel_waveforms = {"L": None, "R": None, "C": None}
 
         band_result = self._bandbank.compute(analysis_c, self._audio.samplerate)
 
@@ -138,7 +142,7 @@ class App:
         if band_result is not None:
             self._last_dominant = band_result.dominant_name
 
-        # Color policy: build particle color function and derive dominant color
+        # Color policy
         color_fn = make_particle_color_fn(
             PARTICLE_COLOR_MODE, band_result, FIXED_PARTICLE_COLOR
         )
@@ -150,19 +154,20 @@ class App:
             self._ring_phase, dt, OVERLAY_PHASE_MODE, orb_angle
         )
 
-        # Compute overlay ring
+        # Compute overlay ring (uses center-channel waveform)
         overlay_frame = compute_overlay(
-            band_result, self._ring_phase, waveform,
+            band_result, self._ring_phase, channel_waveforms["C"],
             self._canvas.width, self._canvas.height,
             self._canvas.background_color,
         )
 
-        # Step each orb, derive per-orb line color, build frames
+        # Step each orb with its channel's energy and waveform
         bg = self._canvas.background_color
         orb_frames = []
         for orb in self._orbs:
             energy = min(channel_rms[orb.channel] * RMS_GAIN, 1.0)
-            orb.step(dt, now_sec, energy, color_fn)
+            waveform = channel_waveforms[orb.channel]
+            orb.step(dt, now_sec, energy, color_fn, waveform)
 
             line_color = pick_line_color(
                 LINE_COLOR_MODE,

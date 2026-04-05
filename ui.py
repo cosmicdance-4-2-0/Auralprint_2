@@ -10,6 +10,7 @@ import numpy as np
 import dearpygui.dearpygui as dpg
 
 from orb import RMS_GAIN
+from overlay import compute_overlay, advance_phase, OVERLAY_PHASE_MODE
 
 VIEWPORT_TITLE = "Auralprint2"
 VIEWPORT_WIDTH = 1280
@@ -43,6 +44,7 @@ class App:
         self._last_dominant = ""
         self._last_stereo = False
         self._last_time = time.perf_counter()
+        self._ring_phase = 0.0
 
     def run(self):
         """Build the UI and enter the main loop. Blocks until window closes."""
@@ -116,6 +118,7 @@ class App:
         if channels is not None:
             self._last_stereo = channels.is_stereo
             analysis_c = self._analyzer.process(channels.center)
+            waveform = channels.center
             channel_rms = {
                 "L": _rms(channels.left),
                 "R": _rms(channels.right),
@@ -123,6 +126,7 @@ class App:
             }
         else:
             analysis_c = None
+            waveform = None
             channel_rms = {"L": 0.0, "R": 0.0, "C": 0.0}
 
         band_result = self._bandbank.compute(analysis_c, self._audio.samplerate)
@@ -142,14 +146,27 @@ class App:
         else:
             color = DEFAULT_PARTICLE_COLOR
 
+        # Overlay ring phase
+        orb_angle = self._orbs[0]._angle if self._orbs else 0.0
+        self._ring_phase = advance_phase(
+            self._ring_phase, dt, OVERLAY_PHASE_MODE, orb_angle
+        )
+
+        # Compute overlay ring
+        overlay_frame = compute_overlay(
+            band_result, self._ring_phase, waveform,
+            self._canvas.width, self._canvas.height,
+            self._canvas.background_color,
+        )
+
         # Step each orb with its channel's energy, build frames
-        frames = []
+        orb_frames = []
         for orb in self._orbs:
             energy = min(channel_rms[orb.channel] * RMS_GAIN, 1.0)
             orb.step(dt, now_sec, energy, color)
-            frames.append(orb.snapshot(now_sec, self._canvas.background_color))
+            orb_frames.append(orb.snapshot(now_sec, self._canvas.background_color))
 
-        self._canvas.render(frames)
+        self._canvas.render(orb_frames, overlay_frame)
         dpg.set_value(self._texture_tag, self._canvas.frame_data())
         self._refresh_status()
 
@@ -183,6 +200,7 @@ class App:
             return
         for orb in self._orbs:
             orb.reset()
+        self._ring_phase = 0.0
         if self._audio.load(filepath):
             self._audio.play()
 

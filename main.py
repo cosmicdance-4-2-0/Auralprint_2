@@ -1,9 +1,8 @@
-"""Auralprint2 v0.1.1 — Stereo Orbs + Mono Detection
+"""Auralprint2 v0.1.2 — Band Overlay Ring
 
-Two orbs: ORB-R targets the right channel at 0 rad,
-ORB-L targets the left channel at π rad. Both rotate
-clockwise. Mono-ish detection via L/R cross-correlation
-adapts the center mix automatically.
+256-point spectral contour ring. Rainbow-colored, energy-driven
+radii, waveform displacement, independent phase rotation.
+Layered behind the stereo orb pair.
 
 Band spacing: hybrid (ERB).
 """

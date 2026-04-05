@@ -11,6 +11,10 @@ import dearpygui.dearpygui as dpg
 
 from orb import RMS_GAIN
 from overlay import compute_overlay, advance_phase, OVERLAY_PHASE_MODE
+from colors import (
+    make_particle_color_fn, pick_line_color, dominant_color_from,
+    PARTICLE_COLOR_MODE, LINE_COLOR_MODE, FIXED_PARTICLE_COLOR,
+)
 
 VIEWPORT_TITLE = "Auralprint2"
 VIEWPORT_WIDTH = 1280
@@ -21,8 +25,6 @@ ALL_EXTENSIONS = "All (*.*){.*}"
 
 FILE_DIALOG_WIDTH = 700
 FILE_DIALOG_HEIGHT = 400
-
-DEFAULT_PARTICLE_COLOR = (1.0, 1.0, 1.0)
 
 
 def _rms(samples):
@@ -133,21 +135,17 @@ class App:
 
         if analysis_c is not None:
             self._last_rms = analysis_c.rms
-
-        # Dominant band color
         if band_result is not None:
             self._last_dominant = band_result.dominant_name
-            dom = band_result.dominant_index
-            color = (
-                float(band_result.colors[dom, 0]),
-                float(band_result.colors[dom, 1]),
-                float(band_result.colors[dom, 2]),
-            )
-        else:
-            color = DEFAULT_PARTICLE_COLOR
+
+        # Color policy: build particle color function and derive dominant color
+        color_fn = make_particle_color_fn(
+            PARTICLE_COLOR_MODE, band_result, FIXED_PARTICLE_COLOR
+        )
+        dom_color = dominant_color_from(band_result)
 
         # Overlay ring phase
-        orb_angle = self._orbs[0]._angle if self._orbs else 0.0
+        orb_angle = self._orbs[0].angle if self._orbs else 0.0
         self._ring_phase = advance_phase(
             self._ring_phase, dt, OVERLAY_PHASE_MODE, orb_angle
         )
@@ -159,12 +157,20 @@ class App:
             self._canvas.background_color,
         )
 
-        # Step each orb with its channel's energy, build frames
+        # Step each orb, derive per-orb line color, build frames
+        bg = self._canvas.background_color
         orb_frames = []
         for orb in self._orbs:
             energy = min(channel_rms[orb.channel] * RMS_GAIN, 1.0)
-            orb.step(dt, now_sec, energy, color)
-            orb_frames.append(orb.snapshot(now_sec, self._canvas.background_color))
+            orb.step(dt, now_sec, energy, color_fn)
+
+            line_color = pick_line_color(
+                LINE_COLOR_MODE,
+                orb.last_particle_color,
+                dom_color,
+                FIXED_PARTICLE_COLOR,
+            )
+            orb_frames.append(orb.snapshot(now_sec, bg, line_color))
 
         self._canvas.render(orb_frames, overlay_frame)
         dpg.set_value(self._texture_tag, self._canvas.frame_data())

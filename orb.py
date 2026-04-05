@@ -1,10 +1,12 @@
 """Orb — a spectral analysis point that orbits, pulsates, and emits particles.
 
 Interface (stable):
-    step(dt, now_sec, energy, particle_color)  — advance simulation
-    snapshot(now_sec, bg_color) -> OrbFrame     — build render-ready data
+    step(dt, now_sec, energy, color_fn)         — advance simulation
+    snapshot(now_sec, bg_color, line_color) -> OrbFrame  — build render-ready data
     reset()                                     — clear trail, reset to start angle
+    last_particle_color                         — (r,g,b) of newest particle, or None
     channel: str                                — 'L', 'R', or 'C' (read-only)
+    angle: float                                — current orbital angle (read-only)
 """
 
 import math
@@ -110,18 +112,30 @@ class Orb:
 
     # ── Interface ──────────────────────────────────────────────
 
-    def step(self, dt, now_sec, energy, particle_color):
+    @property
+    def angle(self):
+        return self._angle
+
+    @property
+    def last_particle_color(self):
+        """(r, g, b) of the newest particle, or None if trail is empty."""
+        if not self._particles:
+            return None
+        p = self._particles[-1]
+        return (p.r, p.g, p.b)
+
+    def step(self, dt, now_sec, energy, color_fn):
         """Advance the orb simulation by dt seconds.
 
         Args:
-            dt:             frame delta in seconds.
-            now_sec:        monotonic clock for particle birth timestamps.
-            energy:         0.0–1.0 analysis energy (drives radius).
-            particle_color: (r, g, b) tuple, 0.0–1.0 range.
+            dt:        frame delta in seconds.
+            now_sec:   monotonic clock for particle birth timestamps.
+            energy:    0.0–1.0 analysis energy (drives radius).
+            color_fn:  callable(angle_rad) -> (r, g, b), determines particle color.
         """
         dt = min(dt, MAX_DT)
 
-        # Advance orbit (chirality controls direction)
+        # Advance orbit
         self._angle = (self._angle + self._chirality * ANGULAR_SPEED * dt) % TAU
 
         # Radius from energy
@@ -136,18 +150,24 @@ class Orb:
         cutoff = now_sec - TTL_SEC
         self._particles = [p for p in self._particles if p.born_sec > cutoff]
 
-        # Emit new particles
+        # Emit new particles (color determined by angle at birth)
         self._emit_accum += EMIT_RATE * dt
         max_emit = int(EMIT_RATE * MAX_DT) + 2
         emitted = 0
-        cr, cg, cb = particle_color
         while self._emit_accum >= 1.0 and emitted < max_emit:
+            cr, cg, cb = color_fn(self._angle)
             self._emit_at(self._x, self._y, now_sec, cr, cg, cb)
             self._emit_accum -= 1.0
             emitted += 1
 
-    def snapshot(self, now_sec, bg_color):
-        """Build an OrbFrame with screen-space positions, computed sizes, and faded colors."""
+    def snapshot(self, now_sec, bg_color, line_color):
+        """Build an OrbFrame with screen-space positions, computed sizes, and faded colors.
+
+        Args:
+            now_sec:    monotonic clock for age computation.
+            bg_color:   (r, g, b) background for fade blending.
+            line_color: (r, g, b) for trail lines (pre-alpha-blended with bg).
+        """
         count = len(self._particles)
         if count == 0:
             return empty_frame()
@@ -195,12 +215,12 @@ class Orb:
         tx = px[trail_start:].copy()
         ty = py[trail_start:].copy()
 
-        # Trail color: dominant-colored, pre-blended with background at trail alpha
-        last = self._particles[-1]
+        # Trail color: pre-blend with background at trail alpha
+        lr, lg, lb = line_color
         a = TRAIL_ALPHA
-        tr = bg_r * (1.0 - a) + last.r * a
-        tg = bg_g * (1.0 - a) + last.g * a
-        tb = bg_b * (1.0 - a) + last.b * a
+        tr = bg_r * (1.0 - a) + lr * a
+        tg = bg_g * (1.0 - a) + lg * a
+        tb = bg_b * (1.0 - a) + lb * a
 
         return OrbFrame(
             particle_x=px, particle_y=py,

@@ -1,8 +1,19 @@
-"""Auralprint2 v0.1.2 — Band Overlay Ring
+"""Auralprint2 v0.1.3 — Color System
 
-256-point spectral contour ring. Rainbow-colored, energy-driven
-radii, waveform displacement, independent phase rotation.
-Layered behind the stereo orb pair.
+Particle color sources: fixed, dominant band, angle (glitch mode).
+Line color modes: fixed, last particle, dominant band.
+All color derivation via ColorPolicy module.
+
+Change PARTICLE_COLOR_MODE in colors.py to switch:
+  "fixed"    — white particles (or whatever FIXED_PARTICLE_COLOR is set to).
+  "dominant" — particles take the color of the loudest band.
+  "angle"    — particles take the color of the band at their birth angle.
+               Each particle is colored independently. Rainbow trails.
+
+Change LINE_COLOR_MODE in colors.py to switch:
+  "fixed"         — trail lines match the fixed particle color.
+  "lastParticle"  — trail lines match the newest particle's color.
+  "dominantBand"  — trail lines match the dominant band's color.
 
 Band spacing: hybrid (ERB).
 """

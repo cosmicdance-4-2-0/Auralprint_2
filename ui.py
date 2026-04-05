@@ -15,6 +15,7 @@ from colors import (
     make_particle_color_fn, pick_line_color, dominant_color_from,
     PARTICLE_COLOR_MODE, LINE_COLOR_MODE, FIXED_PARTICLE_COLOR,
 )
+from scrubber import Scrubber
 
 VIEWPORT_TITLE = "Auralprint2"
 VIEWPORT_WIDTH = 1280
@@ -28,6 +29,8 @@ FILE_DIALOG_HEIGHT = 400
 
 SEEK_STEP_SEC = 5
 SEEK_STEP_LARGE_SEC = 30
+
+SCRUBBER_WIDTH = 1100
 
 
 def _rms(samples):
@@ -44,6 +47,7 @@ class App:
         self._canvas = canvas
         self._orbs = orbs
         self._texture_tag = None
+        self._scrubber = Scrubber()
 
         self._last_rms = 0.0
         self._last_dominant = ""
@@ -51,6 +55,7 @@ class App:
         self._last_time = time.perf_counter()
         self._ring_phase = 0.0
         self._sim_paused = False
+        self._last_loaded_path = None
 
     def run(self):
         """Build the UI and enter the main loop. Blocks until window closes."""
@@ -90,6 +95,10 @@ class App:
 
         with dpg.window(tag="primary_window"):
             dpg.add_image(self._texture_tag)
+
+            # Scrubber bar
+            self._scrubber.build(SCRUBBER_WIDTH)
+            self._scrubber.on_seek = self._on_scrubber_seek
 
             # Transport row
             with dpg.group(horizontal=True):
@@ -217,6 +226,10 @@ class App:
 
         self._canvas.render(orb_frames, overlay_frame)
         dpg.set_value(self._texture_tag, self._canvas.frame_data())
+
+        # Scrubber update
+        self._scrubber.draw(self._audio.position, self._audio.duration)
+
         self._refresh_status()
 
     def _refresh_status(self):
@@ -229,16 +242,13 @@ class App:
             return
 
         state = "playing" if a.is_playing else "paused"
-        pos = _format_time(a.position)
-        dur = _format_time(a.duration)
         stereo = "stereo" if self._last_stereo else "mono-ish"
         mute_str = " [MUTED]" if a.muted else ""
         dominant = f"  \u2666 {self._last_dominant}" if self._last_dominant else ""
         sim = "  [SIM PAUSED]" if self._sim_paused else ""
         dpg.set_value(
             "txt_status",
-            f"{a.filename}  [{pos} / {dur}]  ({state}){mute_str}"
-            f"  {stereo}{dominant}{sim}",
+            f"{a.filename}  ({state}){mute_str}  {stereo}{dominant}{sim}",
         )
         dpg.configure_item("btn_play", label="Pause" if a.is_playing else "Play")
         dpg.set_value("txt_volume", f"{a.volume:.2f}")
@@ -255,6 +265,8 @@ class App:
         for orb in self._orbs:
             orb.reset()
         self._ring_phase = 0.0
+        self._last_loaded_path = filepath
+        self._scrubber.load_file(filepath)
         if self._audio.load(filepath):
             self._audio.play()
 
@@ -277,6 +289,11 @@ class App:
         if self._audio.is_loaded:
             self._audio.seek(self._audio.position + SEEK_STEP_SEC)
 
+    def _on_scrubber_seek(self, fraction):
+        """Called by the scrubber when the user clicks or drags to a position."""
+        if self._audio.is_loaded and self._audio.duration > 0:
+            self._audio.seek(fraction * self._audio.duration)
+
     # ── Callbacks: volume ─────────────────────────────────────
 
     def _on_volume_changed(self, sender, app_data):
@@ -288,7 +305,7 @@ class App:
     # ── Callbacks: keyboard ───────────────────────────────────
 
     # Tags of interactive widgets that should suppress global shortcuts when active.
-    _INTERACTIVE_TAGS = ("sld_volume", "chk_mute")
+    _INTERACTIVE_TAGS = ("sld_volume", "chk_mute", "scrubber_dl")
 
     def _widget_is_active(self):
         """Return True if any interactive widget has focus/is being adjusted."""

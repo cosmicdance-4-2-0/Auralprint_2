@@ -1,18 +1,13 @@
-"""Auralprint2 v0.2.0 — Transport Controls
+"""Auralprint2 v0.2.1 — Scrubber
 
-Full playback transport: play, pause, stop, seek.
-Volume slider and mute toggle.
-Analysis continues through mute (visuals stay alive).
-End-of-track detection via main-thread polling.
+Waveform overview bar with click/drag seeking.
+Async waveform decode runs in a background thread —
+playback starts immediately, waveform appears when ready.
+Explicit visual states: empty, decoding, ready, unavailable.
 
-Keyboard shortcuts:
-    Space       — play/pause audio
-    P           — pause/unpause simulation (audio continues)
-    R           — reset visuals (orb phases + trails)
-    Left/Right  — seek ±5s
-    Shift+L/R   — seek ±30s
-
-Phase 3 begins: building toward a daily-driver media player.
+The scrubber is a self-contained module that owns its own
+DearPyGui drawlist and mouse interaction. Relocatable when
+the panel system arrives.
 """
 
 import math

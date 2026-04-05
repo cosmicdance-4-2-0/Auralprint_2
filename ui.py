@@ -4,7 +4,12 @@ Interface (stable):
     run()  — blocking; returns when the window closes
 """
 
+import time
+
+import numpy as np
 import dearpygui.dearpygui as dpg
+
+from orb import RMS_GAIN
 
 VIEWPORT_TITLE = "Auralprint2"
 VIEWPORT_WIDTH = 1280
@@ -16,15 +21,28 @@ ALL_EXTENSIONS = "All (*.*){.*}"
 FILE_DIALOG_WIDTH = 700
 FILE_DIALOG_HEIGHT = 400
 
+DEFAULT_PARTICLE_COLOR = (1.0, 1.0, 1.0)
+
+
+def _rms(samples):
+    """RMS of a float32 sample array."""
+    return float(np.sqrt(np.mean(samples * samples)))
+
 
 class App:
 
-    def __init__(self, audio, analyzer, canvas):
+    def __init__(self, audio, analyzer, bandbank, canvas, orbs):
         self._audio = audio
         self._analyzer = analyzer
+        self._bandbank = bandbank
         self._canvas = canvas
+        self._orbs = orbs
         self._texture_tag = None
+
         self._last_rms = 0.0
+        self._last_dominant = ""
+        self._last_stereo = False
+        self._last_time = time.perf_counter()
 
     def run(self):
         """Build the UI and enter the main loop. Blocks until window closes."""
@@ -39,6 +57,8 @@ class App:
         dpg.setup_dearpygui()
         dpg.show_viewport()
         dpg.set_primary_window("primary_window", True)
+
+        self._last_time = time.perf_counter()
 
         while dpg.is_dearpygui_running():
             self._tick()
@@ -85,13 +105,51 @@ class App:
     # ── Per-frame update ──────────────────────────────────────
 
     def _tick(self):
-        samples = self._audio.get_samples(self._analyzer.fft_size)
-        result = self._analyzer.process(samples)
+        now = time.perf_counter()
+        dt = now - self._last_time
+        self._last_time = now
+        now_sec = now
 
-        if result is not None:
-            self._last_rms = result.rms
+        # Channel-aware analysis pipeline
+        channels = self._audio.get_channel_samples(self._analyzer.fft_size)
 
-        self._canvas.render(result)
+        if channels is not None:
+            self._last_stereo = channels.is_stereo
+            analysis_c = self._analyzer.process(channels.center)
+            channel_rms = {
+                "L": _rms(channels.left),
+                "R": _rms(channels.right),
+                "C": _rms(channels.center),
+            }
+        else:
+            analysis_c = None
+            channel_rms = {"L": 0.0, "R": 0.0, "C": 0.0}
+
+        band_result = self._bandbank.compute(analysis_c, self._audio.samplerate)
+
+        if analysis_c is not None:
+            self._last_rms = analysis_c.rms
+
+        # Dominant band color
+        if band_result is not None:
+            self._last_dominant = band_result.dominant_name
+            dom = band_result.dominant_index
+            color = (
+                float(band_result.colors[dom, 0]),
+                float(band_result.colors[dom, 1]),
+                float(band_result.colors[dom, 2]),
+            )
+        else:
+            color = DEFAULT_PARTICLE_COLOR
+
+        # Step each orb with its channel's energy, build frames
+        frames = []
+        for orb in self._orbs:
+            energy = min(channel_rms[orb.channel] * RMS_GAIN, 1.0)
+            orb.step(dt, now_sec, energy, color)
+            frames.append(orb.snapshot(now_sec, self._canvas.background_color))
+
+        self._canvas.render(frames)
         dpg.set_value(self._texture_tag, self._canvas.frame_data())
         self._refresh_status()
 
@@ -106,8 +164,12 @@ class App:
         state = "playing" if a.is_playing else "paused"
         pos = _format_time(a.position)
         dur = _format_time(a.duration)
-        rms = f"  RMS: {self._last_rms:.4f}"
-        dpg.set_value("txt_status", f"{a.filename}  [{pos} / {dur}]  ({state}){rms}")
+        stereo = "stereo" if self._last_stereo else "mono-ish"
+        dominant = f"  \u2666 {self._last_dominant}" if self._last_dominant else ""
+        dpg.set_value(
+            "txt_status",
+            f"{a.filename}  [{pos} / {dur}]  ({state})  {stereo}{dominant}",
+        )
         dpg.configure_item("btn_play", label="Pause" if a.is_playing else "Play")
 
     # ── Callbacks ─────────────────────────────────────────────
@@ -119,6 +181,8 @@ class App:
         filepath = app_data.get("file_path_name", "") if app_data else ""
         if not filepath:
             return
+        for orb in self._orbs:
+            orb.reset()
         if self._audio.load(filepath):
             self._audio.play()
 

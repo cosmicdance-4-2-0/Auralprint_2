@@ -3,9 +3,12 @@
 Interface (stable):
     load(filepath) -> bool
     play() / pause() / stop() / shutdown()
+    seek(seconds)
     get_samples(n) -> np.ndarray | None
     get_channel_samples(n) -> ChannelSamples | None
     is_loaded, is_playing, position, duration, filename, samplerate
+    volume, muted
+    on_track_ended: callable or None
 """
 
 import os
@@ -17,7 +20,11 @@ import sounddevice as sd
 
 RING_BUFFER_SIZE = 8192
 
-# Mono detection thresholds (from original Auralprint)
+VOLUME_DEFAULT = 1.0
+VOLUME_MIN = 0.0
+VOLUME_MAX = 1.0
+
+# Mono detection thresholds
 MONO_SILENCE_RMS = 0.002
 MONO_CORRELATION_THRESHOLD = 0.995
 MONO_CORRELATION_STRIDE = 8
@@ -32,10 +39,10 @@ class ChannelSamples:
     __slots__ = ("left", "right", "center", "is_stereo")
 
     def __init__(self, left, right, center, is_stereo):
-        self.left = left          # float32 array
-        self.right = right        # float32 array
-        self.center = center      # float32 array (adaptive: L-only when mono)
-        self.is_stereo = is_stereo  # bool
+        self.left = left
+        self.right = right
+        self.center = center
+        self.is_stereo = is_stereo
 
 
 # ── Ring buffer ────────────────────────────────────────────────
@@ -115,18 +122,25 @@ def _detect_stereo(left, right):
 class AudioEngine:
 
     def __init__(self):
-        self._data = None           # (samples, channels) float32
+        self._data = None
         self._samplerate = 0
         self._channels = 0
-        self._position = 0          # sample index into _data
+        self._position = 0
         self._playing = False
         self._stream = None
         self._lock = threading.Lock()
         self._filename = ""
 
+        self._volume = VOLUME_DEFAULT
+        self._muted = False
+        self._ended_flag = False     # set by callback, consumed by main thread
+
         self._ring_l = _RingBuffer(RING_BUFFER_SIZE)
         self._ring_r = _RingBuffer(RING_BUFFER_SIZE)
         self._ring_c = _RingBuffer(RING_BUFFER_SIZE)
+
+        # User-assignable callback, called from poll_events() on main thread
+        self.on_track_ended = None
 
     # ── Interface ──────────────────────────────────────────────
 
@@ -146,6 +160,7 @@ class AudioEngine:
         self._position = 0
         self._playing = False
         self._filename = os.path.basename(filepath)
+        self._ended_flag = False
 
         self._ring_l.reset()
         self._ring_r.reset()
@@ -180,21 +195,33 @@ class AudioEngine:
             self._playing = False
             self._position = 0
 
+    def seek(self, seconds):
+        """Seek to a position in seconds. Clamps to valid range."""
+        if self._data is None or self._samplerate == 0:
+            return
+        with self._lock:
+            sample = int(seconds * self._samplerate)
+            self._position = max(0, min(sample, len(self._data)))
+
     def shutdown(self):
         """Release all resources. Call on application exit."""
         self.stop()
         self._close_stream()
 
+    def poll_events(self):
+        """Check for async events (track ended). Call once per frame from main thread."""
+        if self._ended_flag:
+            self._ended_flag = False
+            if callable(self.on_track_ended):
+                self.on_track_ended()
+
     def get_samples(self, n):
-        """Return the most recent n center-channel samples (50/50 L+R), or None."""
+        """Return the most recent n center-channel samples, or None."""
         with self._lock:
             return self._ring_c.read(n)
 
     def get_channel_samples(self, n):
-        """Return L/R/C channel samples with mono detection, or None.
-
-        Center channel adapts: 50/50 L+R when stereo, L-only when mono-ish.
-        """
+        """Return L/R/C channel samples with mono detection, or None."""
         with self._lock:
             left = self._ring_l.read(n)
             right = self._ring_r.read(n)
@@ -204,11 +231,7 @@ class AudioEngine:
             return None
 
         is_stereo = _detect_stereo(left, right)
-
-        if is_stereo:
-            center = center_raw
-        else:
-            center = left.copy()
+        center = center_raw if is_stereo else left.copy()
 
         return ChannelSamples(left, right, center, is_stereo)
 
@@ -222,14 +245,12 @@ class AudioEngine:
 
     @property
     def position(self):
-        """Current playback position in seconds."""
         if self._data is None or self._samplerate == 0:
             return 0.0
         return self._position / self._samplerate
 
     @property
     def duration(self):
-        """Total duration in seconds."""
         if self._data is None or self._samplerate == 0:
             return 0.0
         return len(self._data) / self._samplerate
@@ -241,6 +262,22 @@ class AudioEngine:
     @property
     def samplerate(self):
         return self._samplerate
+
+    @property
+    def volume(self):
+        return self._volume
+
+    @volume.setter
+    def volume(self, val):
+        self._volume = max(VOLUME_MIN, min(VOLUME_MAX, float(val)))
+
+    @property
+    def muted(self):
+        return self._muted
+
+    @muted.setter
+    def muted(self, val):
+        self._muted = bool(val)
 
     # ── Internal ──────────────────────────────────────────────
 
@@ -259,6 +296,7 @@ class AudioEngine:
             if start >= total:
                 outdata[:] = 0.0
                 self._playing = False
+                self._ended_flag = True
                 self._push_to_rings(outdata)
                 return
 
@@ -271,14 +309,19 @@ class AudioEngine:
                 outdata[valid:] = 0.0
                 self._position = total
                 self._playing = False
+                self._ended_flag = True
 
+            # Analysis always sees the full signal (pre-gain, pre-mute)
             self._push_to_rings(outdata)
 
-    def _push_to_rings(self, outdata):
-        """Split output into L/R/C and push to ring buffers.
+            # Apply volume and mute to the output only
+            if self._muted:
+                outdata[:] = 0.0
+            else:
+                outdata *= self._volume
 
-        Called inside the audio callback, under self._lock.
-        """
+    def _push_to_rings(self, outdata):
+        """Split output into L/R/C and push to ring buffers."""
         if self._channels >= 2:
             left = outdata[:, 0]
             right = outdata[:, 1]

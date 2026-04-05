@@ -26,6 +26,9 @@ ALL_EXTENSIONS = "All (*.*){.*}"
 FILE_DIALOG_WIDTH = 700
 FILE_DIALOG_HEIGHT = 400
 
+SEEK_STEP_SEC = 5
+SEEK_STEP_LARGE_SEC = 30
+
 
 def _rms(samples):
     """RMS of a float32 sample array."""
@@ -47,6 +50,7 @@ class App:
         self._last_stereo = False
         self._last_time = time.perf_counter()
         self._ring_phase = 0.0
+        self._sim_paused = False
 
     def run(self):
         """Build the UI and enter the main loop. Blocks until window closes."""
@@ -87,13 +91,39 @@ class App:
         with dpg.window(tag="primary_window"):
             dpg.add_image(self._texture_tag)
 
+            # Transport row
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Load", callback=self._on_load)
-                dpg.add_button(
-                    label="Play", tag="btn_play", callback=self._on_play_pause
-                )
+                dpg.add_button(label="Play", tag="btn_play",
+                               callback=self._on_play_pause)
                 dpg.add_button(label="Stop", callback=self._on_stop)
-                dpg.add_text("No audio loaded.", tag="txt_status")
+                dpg.add_button(label="<< 5s", callback=self._on_seek_back)
+                dpg.add_button(label="5s >>", callback=self._on_seek_fwd)
+
+            # Volume row
+            with dpg.group(horizontal=True):
+                dpg.add_checkbox(label="Mute", tag="chk_mute",
+                                 callback=self._on_mute_changed)
+                dpg.add_text("Vol:")
+                dpg.add_slider_float(
+                    tag="sld_volume",
+                    default_value=self._audio.volume,
+                    min_value=0.0, max_value=1.0,
+                    width=200,
+                    callback=self._on_volume_changed,
+                    format="%.2f",
+                )
+                dpg.add_text("", tag="txt_volume")
+
+            # Status
+            dpg.add_text("No audio loaded.", tag="txt_status")
+
+            # Keyboard hint
+            dpg.add_text(
+                "Keys: Space=play/pause  R=reset visuals  "
+                "\u2190/\u2192=seek \u00b15s  Shift+\u2190/\u2192=\u00b130s",
+                color=(255, 255, 255, 100),
+            )
 
         with dpg.file_dialog(
             directory_selector=False,
@@ -106,6 +136,10 @@ class App:
             dpg.add_file_extension(AUDIO_EXTENSIONS)
             dpg.add_file_extension(ALL_EXTENSIONS)
 
+        # Keyboard handler
+        with dpg.handler_registry():
+            dpg.add_key_press_handler(callback=self._on_key_press)
+
     # ── Per-frame update ──────────────────────────────────────
 
     def _tick(self):
@@ -113,6 +147,9 @@ class App:
         dt = now - self._last_time
         self._last_time = now
         now_sec = now
+
+        # Poll async audio events (track ended)
+        self._audio.poll_events()
 
         # Channel-aware analysis pipeline
         channels = self._audio.get_channel_samples(self._analyzer.fft_size)
@@ -154,20 +191,21 @@ class App:
             self._ring_phase, dt, OVERLAY_PHASE_MODE, orb_angle
         )
 
-        # Compute overlay ring (uses center-channel waveform)
+        # Compute overlay ring
         overlay_frame = compute_overlay(
             band_result, self._ring_phase, channel_waveforms["C"],
             self._canvas.width, self._canvas.height,
             self._canvas.background_color,
         )
 
-        # Step each orb with its channel's energy and waveform
+        # Step each orb (unless sim is paused)
         bg = self._canvas.background_color
         orb_frames = []
         for orb in self._orbs:
-            energy = min(channel_rms[orb.channel] * RMS_GAIN, 1.0)
-            waveform = channel_waveforms[orb.channel]
-            orb.step(dt, now_sec, energy, color_fn, waveform)
+            if not self._sim_paused:
+                energy = min(channel_rms[orb.channel] * RMS_GAIN, 1.0)
+                waveform = channel_waveforms[orb.channel]
+                orb.step(dt, now_sec, energy, color_fn, waveform)
 
             line_color = pick_line_color(
                 LINE_COLOR_MODE,
@@ -187,20 +225,25 @@ class App:
         if not a.is_loaded:
             dpg.set_value("txt_status", "No audio loaded.")
             dpg.configure_item("btn_play", label="Play")
+            dpg.set_value("txt_volume", f"{a.volume:.2f}")
             return
 
         state = "playing" if a.is_playing else "paused"
         pos = _format_time(a.position)
         dur = _format_time(a.duration)
         stereo = "stereo" if self._last_stereo else "mono-ish"
+        mute_str = " [MUTED]" if a.muted else ""
         dominant = f"  \u2666 {self._last_dominant}" if self._last_dominant else ""
+        sim = "  [SIM PAUSED]" if self._sim_paused else ""
         dpg.set_value(
             "txt_status",
-            f"{a.filename}  [{pos} / {dur}]  ({state})  {stereo}{dominant}",
+            f"{a.filename}  [{pos} / {dur}]  ({state}){mute_str}"
+            f"  {stereo}{dominant}{sim}",
         )
         dpg.configure_item("btn_play", label="Pause" if a.is_playing else "Play")
+        dpg.set_value("txt_volume", f"{a.volume:.2f}")
 
-    # ── Callbacks ─────────────────────────────────────────────
+    # ── Callbacks: transport ──────────────────────────────────
 
     def _on_load(self, sender=None, app_data=None):
         dpg.show_item("file_dialog")
@@ -225,6 +268,55 @@ class App:
 
     def _on_stop(self, sender=None, app_data=None):
         self._audio.stop()
+
+    def _on_seek_back(self, sender=None, app_data=None):
+        if self._audio.is_loaded:
+            self._audio.seek(self._audio.position - SEEK_STEP_SEC)
+
+    def _on_seek_fwd(self, sender=None, app_data=None):
+        if self._audio.is_loaded:
+            self._audio.seek(self._audio.position + SEEK_STEP_SEC)
+
+    # ── Callbacks: volume ─────────────────────────────────────
+
+    def _on_volume_changed(self, sender, app_data):
+        self._audio.volume = app_data
+
+    def _on_mute_changed(self, sender, app_data):
+        self._audio.muted = app_data
+
+    # ── Callbacks: keyboard ───────────────────────────────────
+
+    def _on_key_press(self, sender, app_data):
+        key = app_data
+
+        # Space: play/pause audio
+        if key == dpg.mvKey_Spacebar:
+            self._on_play_pause()
+            return
+
+        # R: reset visuals (orb phases + trails)
+        if key == dpg.mvKey_R:
+            for orb in self._orbs:
+                orb.reset()
+            self._ring_phase = 0.0
+            return
+
+        # P: pause/unpause simulation (not audio)
+        if key == dpg.mvKey_P:
+            self._sim_paused = not self._sim_paused
+            return
+
+        # Arrow keys: seek
+        if key == dpg.mvKey_Right and self._audio.is_loaded:
+            step = SEEK_STEP_LARGE_SEC if dpg.is_key_down(dpg.mvKey_Shift) else SEEK_STEP_SEC
+            self._audio.seek(self._audio.position + step)
+            return
+
+        if key == dpg.mvKey_Left and self._audio.is_loaded:
+            step = SEEK_STEP_LARGE_SEC if dpg.is_key_down(dpg.mvKey_Shift) else SEEK_STEP_SEC
+            self._audio.seek(self._audio.position - step)
+            return
 
 
 def _format_time(seconds):

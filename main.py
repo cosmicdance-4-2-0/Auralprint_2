@@ -1,17 +1,18 @@
-"""Auralprint2 v0.1.4 — Waveform Displacement
+"""Auralprint2 v0.2.0 — Transport Controls
 
-Each orb's radial position is displaced by the time-domain
-waveform at its current orbital angle — sampled from the orb's
-own channel (L or R). The displacement is a signed fraction of
-the base radius (WF_DISP_FRAC = 0.18), so the orb breathes
-outward on positive samples and inward on negative.
+Full playback transport: play, pause, stop, seek.
+Volume slider and mute toggle.
+Analysis continues through mute (visuals stay alive).
+End-of-track detection via main-thread polling.
 
-Combined with the overlay ring's waveform displacement (added
-in v0.1.2), every visual element now responds to the raw audio
-signal as well as the spectral analysis. The organic breathing
-quality is complete.
+Keyboard shortcuts:
+    Space       — play/pause audio
+    P           — pause/unpause simulation (audio continues)
+    R           — reset visuals (orb phases + trails)
+    Left/Right  — seek ±5s
+    Shift+L/R   — seek ±30s
 
-Phase 2 complete: it looks and feels like Auralprint.
+Phase 3 begins: building toward a daily-driver media player.
 """
 
 import math

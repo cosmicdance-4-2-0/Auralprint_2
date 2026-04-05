@@ -16,6 +16,7 @@ from colors import (
     PARTICLE_COLOR_MODE, LINE_COLOR_MODE, FIXED_PARTICLE_COLOR,
 )
 from scrubber import Scrubber
+from queue import Queue
 
 VIEWPORT_TITLE = "Auralprint2"
 VIEWPORT_WIDTH = 1280
@@ -31,6 +32,7 @@ SEEK_STEP_SEC = 5
 SEEK_STEP_LARGE_SEC = 30
 
 SCRUBBER_WIDTH = 1100
+QUEUE_PANEL_HEIGHT = 200
 
 
 def _rms(samples):
@@ -48,6 +50,7 @@ class App:
         self._orbs = orbs
         self._texture_tag = None
         self._scrubber = Scrubber()
+        self._queue = Queue()
 
         self._last_rms = 0.0
         self._last_dominant = ""
@@ -55,7 +58,11 @@ class App:
         self._last_time = time.perf_counter()
         self._ring_phase = 0.0
         self._sim_paused = False
-        self._last_loaded_path = None
+        self._repeat_mode = "none"  # "none" | "one" | "all"
+        self._queue_visible = False
+
+        # Wire end-of-track callback
+        self._audio.on_track_ended = self._on_track_ended
 
     def run(self):
         """Build the UI and enter the main loop. Blocks until window closes."""
@@ -103,11 +110,19 @@ class App:
             # Transport row
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Load", callback=self._on_load)
+                dpg.add_button(label="\u23ee Prev", tag="btn_prev",
+                               callback=self._on_prev)
                 dpg.add_button(label="Play", tag="btn_play",
                                callback=self._on_play_pause)
                 dpg.add_button(label="Stop", callback=self._on_stop)
-                dpg.add_button(label="<< 5s", callback=self._on_seek_back)
-                dpg.add_button(label="5s >>", callback=self._on_seek_fwd)
+                dpg.add_button(label="Next \u23ed", tag="btn_next",
+                               callback=self._on_next)
+                dpg.add_button(label="Repeat: Off", tag="btn_repeat",
+                               callback=self._on_repeat)
+                dpg.add_button(label="Shuffle", tag="btn_shuffle",
+                               callback=self._on_shuffle)
+                dpg.add_button(label="\u2630 Queue", tag="btn_queue_toggle",
+                               callback=self._on_toggle_queue)
 
             # Volume row
             with dpg.group(horizontal=True):
@@ -127,9 +142,19 @@ class App:
             # Status
             dpg.add_text("No audio loaded.", tag="txt_status")
 
+            # Queue panel (hidden by default)
+            with dpg.child_window(
+                tag="queue_panel", height=QUEUE_PANEL_HEIGHT,
+                show=False, border=True,
+            ):
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Queue", color=(200, 200, 200))
+                    dpg.add_button(label="Clear", callback=self._on_clear_queue)
+                dpg.add_group(tag="queue_list")
+
             # Keyboard hint
             dpg.add_text(
-                "Keys: Space=play/pause  P=sim pause  R=reset visuals  "
+                "Keys: Space=play/pause  N/P=next/prev  R=reset visuals  "
                 "\u2190/\u2192=seek \u00b15s  Shift=\u00b130s",
                 color=(255, 255, 255, 100),
             )
@@ -149,6 +174,17 @@ class App:
         with dpg.handler_registry():
             dpg.add_key_press_handler(callback=self._on_key_press)
 
+    # ── Track loading ─────────────────────────────────────────
+
+    def _load_and_play(self, filepath):
+        """Load a file into the audio engine, start playback, update scrubber and visuals."""
+        for orb in self._orbs:
+            orb.reset()
+        self._ring_phase = 0.0
+        self._scrubber.load_file(filepath)
+        if self._audio.load(filepath):
+            self._audio.play()
+
     # ── Per-frame update ──────────────────────────────────────
 
     def _tick(self):
@@ -157,7 +193,7 @@ class App:
         self._last_time = now
         now_sec = now
 
-        # Poll async audio events (track ended)
+        # Poll async audio events (track ended → auto-advance)
         self._audio.poll_events()
 
         # Channel-aware analysis pipeline
@@ -239,6 +275,7 @@ class App:
             dpg.set_value("txt_status", "No audio loaded.")
             dpg.configure_item("btn_play", label="Play")
             dpg.set_value("txt_volume", f"{a.volume:.2f}")
+            self._refresh_nav_buttons()
             return
 
         state = "playing" if a.is_playing else "paused"
@@ -246,12 +283,53 @@ class App:
         mute_str = " [MUTED]" if a.muted else ""
         dominant = f"  \u2666 {self._last_dominant}" if self._last_dominant else ""
         sim = "  [SIM PAUSED]" if self._sim_paused else ""
+
+        q = self._queue
+        q_pos = f"[{q.current_index + 1}/{q.length}] " if q.length > 0 else ""
+
         dpg.set_value(
             "txt_status",
-            f"{a.filename}  ({state}){mute_str}  {stereo}{dominant}{sim}",
+            f"{q_pos}{a.filename}  ({state}){mute_str}  {stereo}{dominant}{sim}",
         )
         dpg.configure_item("btn_play", label="Pause" if a.is_playing else "Play")
         dpg.set_value("txt_volume", f"{a.volume:.2f}")
+        self._refresh_nav_buttons()
+
+    def _refresh_nav_buttons(self):
+        """Enable/disable Prev/Next/Shuffle based on queue state and repeat mode."""
+        q = self._queue
+        wrap = self._repeat_mode == "all" and q.length > 1
+        dpg.configure_item("btn_prev", enabled=q.can_prev or wrap)
+        dpg.configure_item("btn_next", enabled=q.can_next or wrap)
+        dpg.configure_item("btn_shuffle", enabled=q.length >= 3)
+
+        labels = {"none": "Repeat: Off", "one": "Repeat: One", "all": "Repeat: All"}
+        dpg.configure_item("btn_repeat", label=labels[self._repeat_mode])
+
+    # ── Queue panel ───────────────────────────────────────────
+
+    def _refresh_queue_panel(self):
+        """Rebuild the queue list UI from the queue snapshot."""
+        dpg.delete_item("queue_list", children_only=True)
+
+        snap = self._queue.snapshot()
+
+        for item in snap.items:
+            idx = item["index"]
+            name = item["name"]
+            active = item["active"]
+
+            with dpg.group(horizontal=True, parent="queue_list"):
+                label = f"{'> ' if active else '  '}{idx + 1}. {name}"
+                dpg.add_button(
+                    label=label,
+                    width=900,
+                    callback=lambda s, a, i=idx: self._on_queue_jump(i),
+                )
+                dpg.add_button(
+                    label="x",
+                    callback=lambda s, a, i=idx: self._on_queue_remove(i),
+                )
 
     # ── Callbacks: transport ──────────────────────────────────
 
@@ -259,16 +337,28 @@ class App:
         dpg.show_item("file_dialog")
 
     def _on_file_selected(self, sender, app_data):
-        filepath = app_data.get("file_path_name", "") if app_data else ""
-        if not filepath:
+        if not app_data:
             return
-        for orb in self._orbs:
-            orb.reset()
-        self._ring_phase = 0.0
-        self._last_loaded_path = filepath
-        self._scrubber.load_file(filepath)
-        if self._audio.load(filepath):
-            self._audio.play()
+
+        # DearPyGui file dialog returns selections dict for multi-file
+        selections = app_data.get("selections", {})
+        if selections:
+            filepaths = list(selections.values())
+        else:
+            single = app_data.get("file_path_name", "")
+            filepaths = [single] if single else []
+
+        if not filepaths:
+            return
+
+        for filepath in filepaths:
+            was_empty = self._queue.length == 0
+            idx = self._queue.add(filepath)
+            if was_empty:
+                self._queue.set_cursor(idx)
+                self._load_and_play(filepath)
+
+        self._refresh_queue_panel()
 
     def _on_play_pause(self, sender=None, app_data=None):
         if not self._audio.is_loaded:
@@ -280,6 +370,33 @@ class App:
 
     def _on_stop(self, sender=None, app_data=None):
         self._audio.stop()
+
+    def _on_prev(self, sender=None, app_data=None):
+        filepath = self._queue.pick_manual_prev(self._repeat_mode)
+        if filepath:
+            self._load_and_play(filepath)
+            self._refresh_queue_panel()
+
+    def _on_next(self, sender=None, app_data=None):
+        filepath = self._queue.pick_manual_next(self._repeat_mode)
+        if filepath:
+            self._load_and_play(filepath)
+            self._refresh_queue_panel()
+
+    def _on_repeat(self, sender=None, app_data=None):
+        cycle = {"none": "one", "one": "all", "all": "none"}
+        self._repeat_mode = cycle[self._repeat_mode]
+
+    def _on_shuffle(self, sender=None, app_data=None):
+        if self._queue.shuffle():
+            self._refresh_queue_panel()
+
+    def _on_track_ended(self):
+        """Called by AudioEngine.poll_events() when a track finishes."""
+        filepath = self._queue.pick_auto_advance(self._repeat_mode)
+        if filepath:
+            self._load_and_play(filepath)
+            self._refresh_queue_panel()
 
     def _on_seek_back(self, sender=None, app_data=None):
         if self._audio.is_loaded:
@@ -294,6 +411,38 @@ class App:
         if self._audio.is_loaded and self._audio.duration > 0:
             self._audio.seek(fraction * self._audio.duration)
 
+    # ── Callbacks: queue panel ────────────────────────────────
+
+    def _on_toggle_queue(self, sender=None, app_data=None):
+        self._queue_visible = not self._queue_visible
+        dpg.configure_item("queue_panel", show=self._queue_visible)
+        if self._queue_visible:
+            self._refresh_queue_panel()
+
+    def _on_queue_jump(self, index):
+        filepath = self._queue.go_to(index)
+        if filepath:
+            self._load_and_play(filepath)
+            self._refresh_queue_panel()
+
+    def _on_queue_remove(self, index):
+        removing_current = index == self._queue.current_index
+        new_current = self._queue.remove(index)
+
+        if self._queue.length == 0:
+            self._audio.stop()
+            self._scrubber.reset()
+        elif removing_current and new_current:
+            self._load_and_play(new_current)
+
+        self._refresh_queue_panel()
+
+    def _on_clear_queue(self, sender=None, app_data=None):
+        self._queue.clear()
+        self._audio.stop()
+        self._scrubber.reset()
+        self._refresh_queue_panel()
+
     # ── Callbacks: volume ─────────────────────────────────────
 
     def _on_volume_changed(self, sender, app_data):
@@ -305,7 +454,7 @@ class App:
     # ── Callbacks: keyboard ───────────────────────────────────
 
     # Tags of interactive widgets that should suppress global shortcuts when active.
-    _INTERACTIVE_TAGS = ("sld_volume", "chk_mute", "scrubber_dl")
+    _INTERACTIVE_TAGS = ("sld_volume", "chk_mute")
 
     def _widget_is_active(self):
         """Return True if any interactive widget has focus/is being adjusted."""
@@ -329,16 +478,21 @@ class App:
             self._on_play_pause()
             return
 
+        # N: next track
+        if key == dpg.mvKey_N:
+            self._on_next()
+            return
+
+        # P: previous track (was sim pause — moved to Escape or removed)
+        if key == dpg.mvKey_P:
+            self._on_prev()
+            return
+
         # R: reset visuals (orb phases + trails)
         if key == dpg.mvKey_R:
             for orb in self._orbs:
                 orb.reset()
             self._ring_phase = 0.0
-            return
-
-        # P: pause/unpause simulation (not audio)
-        if key == dpg.mvKey_P:
-            self._sim_paused = not self._sim_paused
             return
 
         # Arrow keys: seek (Shift = large step)

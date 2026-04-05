@@ -1,13 +1,13 @@
-"""Auralprint2 v0.2.1 — Scrubber
+"""Auralprint2 v0.2.2 — Queue / Playlist
 
-Waveform overview bar with click/drag seeking.
-Async waveform decode runs in a background thread —
-playback starts immediately, waveform appears when ready.
-Explicit visual states: empty, decoding, ready, unavailable.
+Multi-file load, queue panel, track navigation.
+Click-to-jump, remove, clear, shuffle (Fisher-Yates).
+Auto-advance on track end with repeat modes (none/one/all).
+N/P keyboard shortcuts for next/prev track.
 
-The scrubber is a self-contained module that owns its own
-DearPyGui drawlist and mouse interaction. Relocatable when
-the panel system arrives.
+v0.2.0a keyboard fix included: scrubber_dl removed from
+_INTERACTIVE_TAGS — drawlists hold focus permanently, which
+was suppressing all shortcuts after first scrubber click.
 """
 
 import math

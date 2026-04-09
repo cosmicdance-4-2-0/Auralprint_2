@@ -287,7 +287,6 @@ class AudioEngine:
         with self._lock:
             if not self._playing or self._data is None:
                 outdata[:] = 0.0
-                self._push_to_rings(outdata)
                 return
 
             start = self._position

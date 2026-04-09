@@ -1,13 +1,27 @@
-"""Auralprint2 v0.2.2 — Queue / Playlist
+"""Auralprint2 v0.3.0 — Preferences System
 
-Multi-file load, queue panel, track navigation.
-Click-to-jump, remove, clear, shuffle (Fisher-Yates).
-Auto-advance on track end with repeat modes (none/one/all).
-N/P keyboard shortcuts for next/prev track.
+Immutable CONFIG with all defaults and limits across the entire
+application. Mutable Preferences class cloned from CONFIG.defaults.
+All parameters bounded by CONFIG.limits. Cross-field constraints
+enforced (sizeMin <= sizeMax, TTL >= decay).
 
-v0.2.0a keyboard fix included: scrubber_dl removed from
-_INTERACTIVE_TAGS — drawlists hold focus permanently, which
-was suppressing all shortcuts after first scrubber click.
+CONFIG structure:
+    defaults.visuals      — background_color, particle_color
+    defaults.trace        — lines, num_lines, line_alpha, line_color_mode
+    defaults.particles    — emit rate, sizes, TTL, overlap
+    defaults.motion       — angular speed, waveform displacement
+    defaults.audio        — FFT size, RMS gain, radius fracs, volume, mute, repeat
+    defaults.bands        — spacing, overlay (11 params), rainbow (3 params), color source
+    defaults.orbs         — per-orb channel, chirality, start angle
+    defaults.timing       — max dt cap
+
+    limits.*              — min/max/step for every numeric parameter
+
+Preferences.set(path, value) clamps to limits automatically.
+Preferences.snapshot() returns a deep-cloned dict.
+resolve(prefs) produces the settings dict for module consumption.
+
+Phase 4 begins: the knobs have a home.
 """
 
 import math

@@ -16,7 +16,8 @@ from colors import (
     PARTICLE_COLOR_MODE, LINE_COLOR_MODE, FIXED_PARTICLE_COLOR,
 )
 from scrubber import Scrubber
-from queue import Queue
+from playlist import Queue
+from config import Preferences, CONFIG, resolve
 
 VIEWPORT_TITLE = "Auralprint2"
 VIEWPORT_WIDTH = 1280
@@ -30,9 +31,16 @@ FILE_DIALOG_HEIGHT = 400
 
 SEEK_STEP_SEC = 5
 SEEK_STEP_LARGE_SEC = 30
+VOLUME_STEP = 0.05
 
 SCRUBBER_WIDTH = 1100
 QUEUE_PANEL_HEIGHT = 200
+
+# Toast duration in seconds
+TOAST_DURATION_SEC = 2.5
+
+# Grave/backtick key constant — varies across DearPyGui versions
+_KEY_GRAVE = getattr(dpg, "mvKey_Grave", getattr(dpg, "mvKey_GraveAccent", None))
 
 
 def _rms(samples):
@@ -58,8 +66,15 @@ class App:
         self._last_time = time.perf_counter()
         self._ring_phase = 0.0
         self._sim_paused = False
-        self._repeat_mode = "none"  # "none" | "one" | "all"
         self._queue_visible = False
+
+        # Configuration system
+        self._prefs = Preferences()
+        self._repeat_mode = self._prefs.get("audio.repeat_mode")
+
+        # Toast message: (text, expire_time)
+        self._toast_text = ""
+        self._toast_expire = 0.0
 
         # Wire end-of-track callback
         self._audio.on_track_ended = self._on_track_ended
@@ -139,7 +154,7 @@ class App:
                 )
                 dpg.add_text("", tag="txt_volume")
 
-            # Status
+            # Status line
             dpg.add_text("No audio loaded.", tag="txt_status")
 
             # Queue panel (hidden by default)
@@ -152,11 +167,11 @@ class App:
                     dpg.add_button(label="Clear", callback=self._on_clear_queue)
                 dpg.add_group(tag="queue_list")
 
-            # Keyboard hint
+            # Keyboard shortcut reference
             dpg.add_text(
-                "Keys: Space=play/pause  N/P=next/prev  R=reset visuals  "
-                "\u2190/\u2192=seek \u00b15s  Shift=\u00b130s",
-                color=(255, 255, 255, 100),
+                "Space=play/pause  N/P=next/prev  \u2190\u2192=seek  "
+                "\u2191\u2193=volume  M=mute  R=reset  H=queue  `=sim pause",
+                color=(255, 255, 255, 80),
             )
 
         with dpg.file_dialog(
@@ -173,6 +188,19 @@ class App:
         # Keyboard handler
         with dpg.handler_registry():
             dpg.add_key_press_handler(callback=self._on_key_press)
+
+    # ── Toast ─────────────────────────────────────────────────
+
+    def _toast(self, msg):
+        """Show a brief message in the status line."""
+        self._toast_text = msg
+        self._toast_expire = time.perf_counter() + TOAST_DURATION_SEC
+
+    def _active_toast(self):
+        """Return the current toast text if still active, else empty string."""
+        if self._toast_text and time.perf_counter() < self._toast_expire:
+            return self._toast_text
+        return ""
 
     # ── Track loading ─────────────────────────────────────────
 
@@ -268,11 +296,15 @@ class App:
 
         self._refresh_status()
 
+    # ── Status display ────────────────────────────────────────
+
     def _refresh_status(self):
         a = self._audio
+        toast = self._active_toast()
 
         if not a.is_loaded:
-            dpg.set_value("txt_status", "No audio loaded.")
+            text = toast if toast else "No audio loaded."
+            dpg.set_value("txt_status", text)
             dpg.configure_item("btn_play", label="Play")
             dpg.set_value("txt_volume", f"{a.volume:.2f}")
             self._refresh_nav_buttons()
@@ -287,10 +319,15 @@ class App:
         q = self._queue
         q_pos = f"[{q.current_index + 1}/{q.length}] " if q.length > 0 else ""
 
-        dpg.set_value(
-            "txt_status",
-            f"{q_pos}{a.filename}  ({state}){mute_str}  {stereo}{dominant}{sim}",
-        )
+        if toast:
+            status = f"{q_pos}{a.filename}  ({state}){mute_str} \u2014 {toast}"
+        else:
+            status = (
+                f"{q_pos}{a.filename}  ({state}){mute_str}"
+                f"  {stereo}{dominant}{sim}"
+            )
+
+        dpg.set_value("txt_status", status)
         dpg.configure_item("btn_play", label="Pause" if a.is_playing else "Play")
         dpg.set_value("txt_volume", f"{a.volume:.2f}")
         self._refresh_nav_buttons()
@@ -305,6 +342,15 @@ class App:
 
         labels = {"none": "Repeat: Off", "one": "Repeat: One", "all": "Repeat: All"}
         dpg.configure_item("btn_repeat", label=labels[self._repeat_mode])
+
+    def _sync_volume_ui(self):
+        """Sync the volume slider and readout to the current audio engine value."""
+        dpg.set_value("sld_volume", self._audio.volume)
+        dpg.set_value("txt_volume", f"{self._audio.volume:.2f}")
+
+    def _sync_mute_ui(self):
+        """Sync the mute checkbox to the current audio engine value."""
+        dpg.set_value("chk_mute", self._audio.muted)
 
     # ── Queue panel ───────────────────────────────────────────
 
@@ -340,7 +386,6 @@ class App:
         if not app_data:
             return
 
-        # DearPyGui file dialog returns selections dict for multi-file
         selections = app_data.get("selections", {})
         if selections:
             filepaths = list(selections.values())
@@ -386,10 +431,13 @@ class App:
     def _on_repeat(self, sender=None, app_data=None):
         cycle = {"none": "one", "one": "all", "all": "none"}
         self._repeat_mode = cycle[self._repeat_mode]
+        labels = {"none": "Off", "one": "One", "all": "All"}
+        self._toast(f"Repeat: {labels[self._repeat_mode]}")
 
     def _on_shuffle(self, sender=None, app_data=None):
         if self._queue.shuffle():
             self._refresh_queue_panel()
+            self._toast("Queue shuffled")
 
     def _on_track_ended(self):
         """Called by AudioEngine.poll_events() when a track finishes."""
@@ -397,14 +445,6 @@ class App:
         if filepath:
             self._load_and_play(filepath)
             self._refresh_queue_panel()
-
-    def _on_seek_back(self, sender=None, app_data=None):
-        if self._audio.is_loaded:
-            self._audio.seek(self._audio.position - SEEK_STEP_SEC)
-
-    def _on_seek_fwd(self, sender=None, app_data=None):
-        if self._audio.is_loaded:
-            self._audio.seek(self._audio.position + SEEK_STEP_SEC)
 
     def _on_scrubber_seek(self, fraction):
         """Called by the scrubber when the user clicks or drags to a position."""
@@ -453,7 +493,7 @@ class App:
 
     # ── Callbacks: keyboard ───────────────────────────────────
 
-    # Tags of interactive widgets that should suppress global shortcuts when active.
+    # Widget tags where global shortcuts should be suppressed.
     _INTERACTIVE_TAGS = ("sld_volume", "chk_mute")
 
     def _widget_is_active(self):
@@ -464,14 +504,23 @@ class App:
                     return True
             except Exception:
                 pass
+        # Also suppress while file dialog is visible
+        try:
+            if dpg.is_item_shown("file_dialog"):
+                return True
+        except Exception:
+            pass
         return False
 
     def _on_key_press(self, sender, app_data):
         key = app_data
 
-        # Suppress global shortcuts when interactive widgets have focus
         if self._widget_is_active():
             return
+
+        shift = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(dpg.mvKey_RShift)
+
+        # ── Playback ──────────────────────────────────────────
 
         # Space: play/pause audio
         if key == dpg.mvKey_Spacebar:
@@ -483,29 +532,87 @@ class App:
             self._on_next()
             return
 
-        # P: previous track (was sim pause — moved to Escape or removed)
+        # P: previous track
         if key == dpg.mvKey_P:
             self._on_prev()
             return
 
-        # R: reset visuals (orb phases + trails)
+        # Home: restart current track from beginning
+        if key == dpg.mvKey_Home and self._audio.is_loaded:
+            self._audio.seek(0)
+            self._toast("Restart track")
+            return
+
+        # End: skip to end of current track (triggers auto-advance)
+        if key == dpg.mvKey_End and self._audio.is_loaded:
+            self._audio.seek(self._audio.duration)
+            return
+
+        # ── Seek ──────────────────────────────────────────────
+
+        # Right arrow: seek forward
+        if key == dpg.mvKey_Right and self._audio.is_loaded:
+            step = SEEK_STEP_LARGE_SEC if shift else SEEK_STEP_SEC
+            self._audio.seek(self._audio.position + step)
+            return
+
+        # Left arrow: seek backward
+        if key == dpg.mvKey_Left and self._audio.is_loaded:
+            step = SEEK_STEP_LARGE_SEC if shift else SEEK_STEP_SEC
+            self._audio.seek(self._audio.position - step)
+            return
+
+        # ── Volume ────────────────────────────────────────────
+
+        # Up arrow: volume up
+        if key == dpg.mvKey_Up:
+            self._audio.volume = min(1.0, self._audio.volume + VOLUME_STEP)
+            self._sync_volume_ui()
+            return
+
+        # Down arrow: volume down
+        if key == dpg.mvKey_Down:
+            self._audio.volume = max(0.0, self._audio.volume - VOLUME_STEP)
+            self._sync_volume_ui()
+            return
+
+        # M: mute toggle
+        if key == dpg.mvKey_M:
+            self._audio.muted = not self._audio.muted
+            self._sync_mute_ui()
+            self._toast("Muted" if self._audio.muted else "Unmuted")
+            return
+
+        # ── Visuals ───────────────────────────────────────────
+
+        # R: reset visuals (orb phases + trails + overlay ring phase)
         if key == dpg.mvKey_R:
             for orb in self._orbs:
                 orb.reset()
             self._ring_phase = 0.0
+            self._toast("Visuals reset")
             return
 
-        # Arrow keys: seek (Shift = large step)
-        shift_held = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(dpg.mvKey_RShift)
-
-        if key == dpg.mvKey_Right and self._audio.is_loaded:
-            step = SEEK_STEP_LARGE_SEC if shift_held else SEEK_STEP_SEC
-            self._audio.seek(self._audio.position + step)
+        # ` (grave/backtick): toggle sim pause
+        if _KEY_GRAVE is not None and key == _KEY_GRAVE:
+            self._sim_paused = not self._sim_paused
+            self._toast("Sim paused" if self._sim_paused else "Sim resumed")
             return
 
-        if key == dpg.mvKey_Left and self._audio.is_loaded:
-            step = SEEK_STEP_LARGE_SEC if shift_held else SEEK_STEP_SEC
-            self._audio.seek(self._audio.position - step)
+        # ── UI ────────────────────────────────────────────────
+
+        # H: toggle queue panel
+        if key == dpg.mvKey_H:
+            self._on_toggle_queue()
+            return
+
+        # Escape: close queue panel if open, otherwise stop playback
+        if key == dpg.mvKey_Escape:
+            if self._queue_visible:
+                self._queue_visible = False
+                dpg.configure_item("queue_panel", show=False)
+            else:
+                self._on_stop()
             return
 
 

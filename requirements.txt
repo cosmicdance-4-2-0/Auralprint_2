@@ -1,22 +1,52 @@
-# Core scientific / FFT stack (high-performance DSP)
+# === Core DSP ===
 numpy>=1.26.0
 scipy>=1.12.0
 pyfftw>=0.13.0
+numba
+librosa
+resampy
 
-# Audio I/O — lowest latency real-time + file support
+# === Audio I/O ===
 sounddevice>=0.5.5
 soundfile>=0.13.0
-pydub>=0.25.0
+pyaudio  # optional fallback
 
-# GPU shaders, particles, orbs, trails — the performance core
-taichi>=1.7.0
+# === Decoding ===
+av
+audioread
+ffmpeg-python
+pydub  # optional convenience
 
-# GPU-accelerated immediate-mode UI (panels, scrubber, HUD, queue)
+# === Metadata ===
+mutagen>=1.47.0
+tinytag
+musicbrainzngs
+
+# === File / Playlists ===
+watchdog
+lxml
+
+# === UI / Visualization ===
 dearpygui>=2.0.0
+moderngl
+pyqtgraph
+taichi>=1.7.0  
 
-# Fast JSON for presets / share links
+# === Networking ===
+requests
+aiohttp
+websockets
+
+# === Serialization ===
 orjson>=3.10.0
 
-# For video export or advanced image handling
+# === Dev / Infra ===
+loguru
+pydantic
+rich
+pytest
+
+# === Optional (future features) ===
 imageio>=2.34.0
-moviepy>=1.0.0   # requires ffmpeg installed separately
+moviepy>=1.0.0
+# uvloop

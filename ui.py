@@ -41,6 +41,8 @@ _KEY_GRAVE = getattr(dpg, "mvKey_Grave", getattr(dpg, "mvKey_GraveAccent", None)
 
 def _rms(samples):
     """RMS of a float32 sample array."""
+    if samples is None or len(samples) == 0:
+        return 0.0
     return float(np.sqrt(np.mean(samples * samples)))
 
 
@@ -248,14 +250,14 @@ class App:
             orb.reset()
         self._ring_phase = 0.0
         self._scrubber.load_file(filepath)
-        if self._audio.load(filepath):
+        result = self._audio.load(filepath)
+        if result.success:
             self._audio.play()
+            if result.warning is not None and result.warning.kind == "partial":
+                self._toast(self._message_for_audio_issue(result.warning, for_waveform=False))
         else:
-            failure = self._audio.last_decode_failure
-            if failure is not None:
-                self._toast(f"Decode failed ({failure.backend}: {failure.code})")
-            else:
-                self._toast("Unable to load track")
+            issue = result.error or self._audio.last_error
+            self._toast(self._message_for_audio_issue(issue))
 
     def _extract_dialog_path(self, app_data):
         """Resolve a selected file path from DearPyGui file dialog data."""
@@ -526,6 +528,8 @@ class App:
             if was_empty:
                 self._queue.set_cursor(idx)
                 self._load_and_play(filepath)
+            else:
+                self._toast(f"Added to queue: {Path(filepath).name}")
 
         self._refresh_queue_panel()
 
@@ -605,7 +609,20 @@ class App:
         self._queue.clear()
         self._audio.stop()
         self._scrubber.reset()
+        self._toast("Queue cleared")
         self._refresh_queue_panel()
+
+    def _message_for_audio_issue(self, issue, for_waveform=True):
+        if issue is None:
+            return "Unable to load track" if not for_waveform else "Waveform unavailable"
+        if issue.kind == "unsupported":
+            return f"Unsupported format ({issue.backend}): {issue.original_message or issue.message}"
+        if issue.kind == "corrupted":
+            return f"Corrupted/unreadable file ({issue.backend}): {issue.original_message or issue.message}"
+        if issue.kind == "partial":
+            prefix = "Partial waveform" if for_waveform else "Partial decode"
+            return f"{prefix} ({issue.backend}): {issue.original_message or issue.message}"
+        return issue.message
 
     # ── Callbacks: volume ─────────────────────────────────────
 

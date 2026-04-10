@@ -36,10 +36,13 @@ class Analyzer:
         Returns:
             AnalysisResult if enough samples are available, else None.
         """
-        if samples is None or len(samples) < self.fft_size:
+        if samples is None or len(samples) == 0:
             return None
-
-        chunk = samples[-self.fft_size :]
+        if len(samples) < self.fft_size:
+            chunk = np.zeros(self.fft_size, dtype=np.float32)
+            chunk[-len(samples):] = samples
+        else:
+            chunk = samples[-self.fft_size :]
 
         rms = float(np.sqrt(np.mean(chunk * chunk)))
 

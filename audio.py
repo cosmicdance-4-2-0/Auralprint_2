@@ -1,7 +1,7 @@
 """Audio engine — file loading, playback, L/R/C channel buffers, mono detection.
 
 Interface (stable):
-    load(filepath) -> bool
+    load(filepath) -> AudioLoadResult
     play() / pause() / stop() / shutdown()
     seek(seconds)
     get_samples(n) -> np.ndarray | None
@@ -13,11 +13,13 @@ Interface (stable):
 
 import os
 import threading
+from dataclasses import dataclass
 
 import numpy as np
 import sounddevice as sd
 from audio_decode import try_decode_audio
 from audio_probe import probe_audio, AudioMetadata
+from audio_errors import AudioErrorInfo
 
 DEFAULT_AUDIO_SETTINGS = {
     "ring_buffer_size": 8192,
@@ -45,6 +47,17 @@ class ChannelSamples:
         self.right = right
         self.center = center
         self.is_stereo = is_stereo
+
+
+@dataclass(frozen=True)
+class AudioLoadResult:
+    success: bool
+    warning: AudioErrorInfo | None = None
+    error: AudioErrorInfo | None = None
+    filepath: str = ""
+
+    def __bool__(self):
+        return self.success
 
 
 # ── Ring buffer ────────────────────────────────────────────────
@@ -149,6 +162,8 @@ class AudioEngine:
         self._lock = threading.Lock()
         self._filename = ""
         self._last_decode_failure = None
+        self._last_error = None
+        self._last_warning = None
         self._decode_backend = ""
         self._metadata = AudioMetadata(filepath="")
 
@@ -187,7 +202,7 @@ class AudioEngine:
     # ── Interface ──────────────────────────────────────────────
 
     def load(self, filepath):
-        """Load an audio file. Stops current playback first. Returns True on success."""
+        """Load an audio file. Stops current playback first."""
         self.stop()
         self._close_stream()
 
@@ -198,6 +213,8 @@ class AudioEngine:
         decoded, failure = try_decode_audio(filepath)
         if decoded is None:
             self._last_decode_failure = failure
+            self._last_error = failure.error if failure is not None else self._metadata.probe_error
+            self._last_warning = None
             self._decode_backend = ""
             self._data = None
             self._samplerate = int(self._metadata.sample_rate_hz or 0)
@@ -205,9 +222,11 @@ class AudioEngine:
             self._position = 0
             self._playing = False
             self._filename = os.path.basename(filepath)
-            return False
+            return AudioLoadResult(success=False, error=self._last_error, filepath=filepath)
 
         self._last_decode_failure = None
+        self._last_error = None
+        self._last_warning = decoded.warning
         self._decode_backend = decoded.backend
         self._data = decoded.samples
         self._samplerate = decoded.samplerate
@@ -228,7 +247,7 @@ class AudioEngine:
             callback=self._audio_callback,
         )
         self._stream.start()
-        return True
+        return AudioLoadResult(success=True, warning=self._last_warning, filepath=filepath)
 
     def play(self):
         """Start or resume playback. Restarts from beginning if at end of file."""
@@ -285,6 +304,12 @@ class AudioEngine:
 
         if left is None or right is None or center_raw is None:
             return None
+        if n <= 0:
+            return None
+
+        left = _pad_to_size(left, n)
+        right = _pad_to_size(right, n)
+        center_raw = _pad_to_size(center_raw, n)
 
         is_stereo = _detect_stereo(left, right, self._settings)
         center = center_raw if is_stereo else left.copy()
@@ -328,6 +353,14 @@ class AudioEngine:
     @property
     def last_decode_failure(self):
         return self._last_decode_failure
+
+    @property
+    def last_error(self):
+        return self._last_error
+
+    @property
+    def last_warning(self):
+        return self._last_warning
 
     @property
     def samplerate(self):
@@ -416,3 +449,14 @@ class AudioEngine:
             except Exception:
                 pass
             self._stream = None
+
+
+def _pad_to_size(arr, n):
+    """Return an array of exactly n samples, left-padded with zeros if needed."""
+    if arr is None:
+        return None
+    if len(arr) >= n:
+        return arr[-n:]
+    out = np.zeros(n, dtype=np.float32)
+    out[-len(arr):] = arr
+    return out

@@ -250,6 +250,12 @@ class App:
         self._scrubber.load_file(filepath)
         if self._audio.load(filepath):
             self._audio.play()
+        else:
+            failure = self._audio.last_decode_failure
+            if failure is not None:
+                self._toast(f"Decode failed ({failure.backend}: {failure.code})")
+            else:
+                self._toast("Unable to load track")
 
     def _extract_dialog_path(self, app_data):
         """Resolve a selected file path from DearPyGui file dialog data."""

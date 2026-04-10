@@ -15,8 +15,8 @@ import os
 import threading
 
 import numpy as np
-import soundfile as sf
 import sounddevice as sd
+from audio_decode import try_decode_audio
 
 DEFAULT_AUDIO_SETTINGS = {
     "ring_buffer_size": 8192,
@@ -147,6 +147,8 @@ class AudioEngine:
         self._stream = None
         self._lock = threading.Lock()
         self._filename = ""
+        self._last_decode_failure = None
+        self._decode_backend = ""
 
         self._volume = cfg["volume"]
         self._muted = bool(cfg["muted"])
@@ -187,14 +189,17 @@ class AudioEngine:
         self.stop()
         self._close_stream()
 
-        try:
-            data, sr = sf.read(filepath, dtype="float32", always_2d=True)
-        except Exception:
+        decoded, failure = try_decode_audio(filepath)
+        if decoded is None:
+            self._last_decode_failure = failure
+            self._decode_backend = ""
             return False
 
-        self._data = data
-        self._samplerate = sr
-        self._channels = data.shape[1]
+        self._last_decode_failure = None
+        self._decode_backend = decoded.backend
+        self._data = decoded.samples
+        self._samplerate = decoded.samplerate
+        self._channels = decoded.channels
         self._position = 0
         self._playing = False
         self._filename = os.path.basename(filepath)
@@ -205,7 +210,7 @@ class AudioEngine:
         self._ring_c.reset()
 
         self._stream = sd.OutputStream(
-            samplerate=sr,
+            samplerate=self._samplerate,
             channels=self._channels,
             dtype="float32",
             callback=self._audio_callback,
@@ -297,6 +302,14 @@ class AudioEngine:
     @property
     def filename(self):
         return self._filename
+
+    @property
+    def decode_backend(self):
+        return self._decode_backend
+
+    @property
+    def last_decode_failure(self):
+        return self._last_decode_failure
 
     @property
     def samplerate(self):

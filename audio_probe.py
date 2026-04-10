@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
+from audio_errors import AudioErrorInfo, CorruptedFileError, UnsupportedFormatError
 
 @dataclass(frozen=True)
 class AudioMetadata:
@@ -22,6 +23,7 @@ class AudioMetadata:
     bit_rate_bps: Optional[int] = None
 
     probe_warnings: list[str] = field(default_factory=list)
+    probe_error: AudioErrorInfo | None = None
 
 
 
@@ -37,12 +39,13 @@ def _safe_int(value) -> Optional[int]:
 def probe_audio(filepath: str) -> AudioMetadata:
     """Probe audio metadata without fully decoding samples."""
     warnings: list[str] = []
+    probe_error: AudioErrorInfo | None = None
 
     try:
         import av
     except Exception as exc:
-        warnings.append(f"pyav_unavailable: {exc}")
-        return AudioMetadata(filepath=filepath, probe_warnings=warnings)
+        err = CorruptedFileError(f"pyav_unavailable: {exc}", backend="pyav", cause=exc)
+        return AudioMetadata(filepath=filepath, probe_warnings=warnings, probe_error=err.to_info())
 
     container_format: Optional[str] = None
     codec: Optional[str] = None
@@ -88,8 +91,15 @@ def probe_audio(filepath: str) -> AudioMetadata:
                 elif container_duration is None:
                     warnings.append("duration_unavailable")
 
+    except av.error.FFmpegError as exc:  # type: ignore[attr-defined]
+        msg = str(exc)
+        low = msg.lower()
+        if "invalid data" in low:
+            probe_error = CorruptedFileError(f"probe_failed: {msg}", backend="pyav", cause=exc).to_info()
+        else:
+            probe_error = UnsupportedFormatError(f"probe_failed: {msg}", backend="pyav", cause=exc).to_info()
     except Exception as exc:
-        warnings.append(f"probe_failed: {exc}")
+        probe_error = CorruptedFileError(f"probe_failed: {exc}", backend="pyav", cause=exc).to_info()
 
     return AudioMetadata(
         filepath=filepath,
@@ -101,4 +111,5 @@ def probe_audio(filepath: str) -> AudioMetadata:
         channels=channels,
         bit_rate_bps=bit_rate,
         probe_warnings=warnings,
+        probe_error=probe_error,
     )

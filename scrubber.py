@@ -30,7 +30,7 @@ class Scrubber:
 
     def __init__(self):
         self._peaks = None              # float32 array of normalized peak values
-        self._status = "empty"          # "empty" | "decoding" | "ready" | "unavailable"
+        self._status = "empty"          # "empty" | "decoding" | "ready" | "unsupported" | "corrupted" | "partial"
         self._decode_failure = None
         self._decode_token = 0
         self._width = 0
@@ -97,8 +97,11 @@ class Scrubber:
         if decoded is None:
             if self._decode_token == token:
                 self._peaks = None
-                self._decode_failure = failure
-                self._status = "unavailable"
+                self._decode_failure = failure.error if failure is not None else None
+                kind = self._decode_failure.kind if self._decode_failure is not None else "corrupted"
+                if kind not in {"unsupported", "corrupted"}:
+                    kind = "corrupted"
+                self._status = kind
             return
 
         if self._decode_token != token:
@@ -125,8 +128,8 @@ class Scrubber:
             return
 
         self._peaks = peaks
-        self._decode_failure = None
-        self._status = "ready"
+        self._decode_failure = decoded.warning
+        self._status = "partial" if decoded.warning is not None and decoded.warning.kind == "partial" else "ready"
 
     # ── Mouse interaction ─────────────────────────────────────
 
@@ -225,10 +228,12 @@ class Scrubber:
             )
 
     def _draw_center_line(self, w, mid_y):
-        """Draw a flat center line for empty/decoding/unavailable states."""
+        """Draw a flat center line for empty/decoding/error states."""
         color = COLOR_CENTER_LINE
-        if self._status == "unavailable":
+        if self._status in {"unsupported", "corrupted"}:
             color = (180, 80, 80, 150)
+        elif self._status == "partial":
+            color = (170, 130, 70, 150)
         elif self._status == "decoding":
             color = (120, 120, 120, 150)
 
@@ -249,10 +254,18 @@ class Scrubber:
         suffix = ""
         if self._status == "decoding":
             suffix = " \u2022 decoding waveform"
-        elif self._status == "unavailable":
-            suffix = " \u2022 waveform unavailable"
+        elif self._status == "unsupported":
+            suffix = " \u2022 waveform unsupported"
+            if self._decode_failure is not None:
+                suffix = f" \u2022 unsupported ({self._decode_failure.backend}: {self._decode_failure.code})"
+        elif self._status == "corrupted":
+            suffix = " \u2022 waveform decode failed"
             if self._decode_failure is not None:
                 suffix = f" \u2022 decode failed ({self._decode_failure.backend}: {self._decode_failure.code})"
+        elif self._status == "partial":
+            suffix = " \u2022 partial waveform"
+            if self._decode_failure is not None:
+                suffix = f" \u2022 partial waveform ({self._decode_failure.backend})"
         elif self._status == "empty" and duration <= 0:
             suffix = " \u2022 no track loaded"
 

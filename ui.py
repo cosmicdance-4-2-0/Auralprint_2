@@ -401,15 +401,24 @@ class App:
 
         q = self._queue
         q_pos = f"[{q.current_index + 1}/{q.length}] " if q.length > 0 else ""
+        meta = a.metadata
+        meta_parts = []
+        if meta.audio_codec:
+            meta_parts.append(meta.audio_codec)
+        if meta.sample_rate_hz:
+            meta_parts.append(f"{meta.sample_rate_hz} Hz")
+        if meta.channels:
+            meta_parts.append(f"{meta.channels} ch")
+        meta_suffix = f"  [{' / '.join(meta_parts)}]" if meta_parts else ""
 
         if toast:
             status = (
-                f"{q_pos}{a.filename}  ({state}){mute_str}"
+                f"{q_pos}{a.filename}  ({state}){mute_str}{meta_suffix}"
                 f"  [Preset: {self._active_preset_name}] \u2014 {toast}"
             )
         else:
             status = (
-                f"{q_pos}{a.filename}  ({state}){mute_str}"
+                f"{q_pos}{a.filename}  ({state}){mute_str}{meta_suffix}"
                 f"  [Preset: {self._active_preset_name}]  {stereo}{dominant}{sim}"
             )
 

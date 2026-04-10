@@ -6,7 +6,7 @@ Interface (stable):
     seek(seconds)
     get_samples(n) -> np.ndarray | None
     get_channel_samples(n) -> ChannelSamples | None
-    is_loaded, is_playing, position, duration, filename, samplerate
+    is_loaded, is_playing, position, duration, filename, samplerate, metadata
     volume, muted
     on_track_ended: callable or None
 """
@@ -17,6 +17,7 @@ import threading
 import numpy as np
 import sounddevice as sd
 from audio_decode import try_decode_audio
+from audio_probe import probe_audio, AudioMetadata
 
 DEFAULT_AUDIO_SETTINGS = {
     "ring_buffer_size": 8192,
@@ -149,6 +150,7 @@ class AudioEngine:
         self._filename = ""
         self._last_decode_failure = None
         self._decode_backend = ""
+        self._metadata = AudioMetadata(filepath="")
 
         self._volume = cfg["volume"]
         self._muted = bool(cfg["muted"])
@@ -189,10 +191,20 @@ class AudioEngine:
         self.stop()
         self._close_stream()
 
+        # Probe container/stream metadata first so duration and codec details are
+        # available even when decode is delayed/partial/fails.
+        self._metadata = probe_audio(filepath)
+
         decoded, failure = try_decode_audio(filepath)
         if decoded is None:
             self._last_decode_failure = failure
             self._decode_backend = ""
+            self._data = None
+            self._samplerate = int(self._metadata.sample_rate_hz or 0)
+            self._channels = int(self._metadata.channels or 0)
+            self._position = 0
+            self._playing = False
+            self._filename = os.path.basename(filepath)
             return False
 
         self._last_decode_failure = None
@@ -295,9 +307,15 @@ class AudioEngine:
 
     @property
     def duration(self):
-        if self._data is None or self._samplerate == 0:
-            return 0.0
-        return len(self._data) / self._samplerate
+        if self._data is not None and self._samplerate > 0:
+            return len(self._data) / self._samplerate
+
+        # Metadata fallback for delayed or partial decode scenarios.
+        if self._metadata.stream_duration_sec is not None:
+            return float(self._metadata.stream_duration_sec)
+        if self._metadata.container_duration_sec is not None:
+            return float(self._metadata.container_duration_sec)
+        return 0.0
 
     @property
     def filename(self):
@@ -314,6 +332,10 @@ class AudioEngine:
     @property
     def samplerate(self):
         return self._samplerate
+
+    @property
+    def metadata(self):
+        return self._metadata
 
     @property
     def volume(self):

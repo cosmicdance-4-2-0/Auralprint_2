@@ -19,8 +19,9 @@ from scrubber import Scrubber
 from playlist import Queue
 from config import Preferences, resolve
 from presets import export_preset, import_preset
+from version import APP_VERSION
 
-VIEWPORT_TITLE = "Auralprint2"
+VIEWPORT_TITLE = f"Auralprint2 v{APP_VERSION}"
 VIEWPORT_WIDTH = 1280
 VIEWPORT_HEIGHT = 760
 

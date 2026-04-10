@@ -1,4 +1,4 @@
-"""Auralprint2 v0.3.0 — Preferences System
+"""Auralprint2 v0.3.1 — Preset Serialization
 
 Immutable CONFIG with all defaults and limits across the entire
 application. Mutable Preferences class cloned from CONFIG.defaults.
@@ -36,6 +36,7 @@ from bands import BandBank
 from canvas import Canvas
 from orb import Orb
 from ui import App
+
 
 CANVAS_WIDTH = 1280
 CANVAS_HEIGHT = 680

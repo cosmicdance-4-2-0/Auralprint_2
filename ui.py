@@ -5,6 +5,7 @@ Interface (stable):
 """
 
 import time
+from pathlib import Path
 
 import numpy as np
 import dearpygui.dearpygui as dpg
@@ -17,6 +18,7 @@ from colors import (
 from scrubber import Scrubber
 from playlist import Queue
 from config import Preferences, resolve
+from presets import export_preset, import_preset
 
 VIEWPORT_TITLE = "Auralprint2"
 VIEWPORT_WIDTH = 1280
@@ -27,6 +29,7 @@ ALL_EXTENSIONS = "All (*.*){.*}"
 
 FILE_DIALOG_WIDTH = 700
 FILE_DIALOG_HEIGHT = 400
+PRESET_EXTENSIONS = "Preset (*.json){.json}"
 
 SCRUBBER_WIDTH = 1100
 QUEUE_PANEL_HEIGHT = 200
@@ -59,6 +62,7 @@ class App:
         self._ring_phase = 0.0
         self._sim_paused = False
         self._queue_visible = False
+        self._active_preset_name = "Default"
 
         # Configuration system
         self._prefs = Preferences()
@@ -136,6 +140,8 @@ class App:
             # Transport row
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Load", callback=self._on_load)
+                dpg.add_button(label="Export Preset", callback=self._on_export_preset)
+                dpg.add_button(label="Import Preset", callback=self._on_import_preset)
                 dpg.add_button(label="\u23ee Prev", tag="btn_prev",
                                callback=self._on_prev)
                 dpg.add_button(label="Play", tag="btn_play",
@@ -196,6 +202,26 @@ class App:
             dpg.add_file_extension(AUDIO_EXTENSIONS)
             dpg.add_file_extension(ALL_EXTENSIONS)
 
+        with dpg.file_dialog(
+            directory_selector=False,
+            show=False,
+            callback=self._on_preset_export_selected,
+            tag="preset_export_dialog",
+            width=FILE_DIALOG_WIDTH,
+            height=FILE_DIALOG_HEIGHT,
+        ):
+            dpg.add_file_extension(PRESET_EXTENSIONS)
+
+        with dpg.file_dialog(
+            directory_selector=False,
+            show=False,
+            callback=self._on_preset_import_selected,
+            tag="preset_import_dialog",
+            width=FILE_DIALOG_WIDTH,
+            height=FILE_DIALOG_HEIGHT,
+        ):
+            dpg.add_file_extension(PRESET_EXTENSIONS)
+
         # Keyboard handler
         with dpg.handler_registry():
             dpg.add_key_press_handler(callback=self._on_key_press)
@@ -223,6 +249,42 @@ class App:
         self._scrubber.load_file(filepath)
         if self._audio.load(filepath):
             self._audio.play()
+
+    def _extract_dialog_path(self, app_data):
+        """Resolve a selected file path from DearPyGui file dialog data."""
+        if not app_data:
+            return ""
+        selections = app_data.get("selections", {})
+        if selections:
+            return next(iter(selections.values()), "")
+        return app_data.get("file_path_name", "")
+
+    def _apply_imported_preset(self, imported):
+        """Safely apply imported values through Preferences.set() for clamping."""
+
+        def walk(node, prefix):
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    path = f"{prefix}.{key}" if prefix else key
+                    yield from walk(value, path)
+                return
+            yield prefix, node
+
+        for path, value in walk(imported, ""):
+            if not path:
+                continue
+            try:
+                self._prefs.set(path, value)
+            except KeyError:
+                continue
+
+        self._settings = resolve(self._prefs)
+        self._repeat_mode = self._settings["audio"]["repeat_mode"]
+        self._apply_resolved_settings()
+        self._audio.volume = self._settings["audio"]["volume"]
+        self._audio.muted = self._settings["audio"]["muted"]
+        self._sync_volume_ui()
+        self._sync_mute_ui()
 
     # ── Per-frame update ──────────────────────────────────────
 
@@ -314,7 +376,10 @@ class App:
         toast = self._active_toast()
 
         if not a.is_loaded:
-            text = toast if toast else "No audio loaded."
+            if toast:
+                text = f"[Preset: {self._active_preset_name}] — {toast}"
+            else:
+                text = f"No audio loaded. [Preset: {self._active_preset_name}]"
             dpg.set_value("txt_status", text)
             dpg.configure_item("btn_play", label="Play")
             dpg.set_value("txt_volume", f"{a.volume:.2f}")
@@ -331,11 +396,14 @@ class App:
         q_pos = f"[{q.current_index + 1}/{q.length}] " if q.length > 0 else ""
 
         if toast:
-            status = f"{q_pos}{a.filename}  ({state}){mute_str} \u2014 {toast}"
+            status = (
+                f"{q_pos}{a.filename}  ({state}){mute_str}"
+                f"  [Preset: {self._active_preset_name}] \u2014 {toast}"
+            )
         else:
             status = (
                 f"{q_pos}{a.filename}  ({state}){mute_str}"
-                f"  {stereo}{dominant}{sim}"
+                f"  [Preset: {self._active_preset_name}]  {stereo}{dominant}{sim}"
             )
 
         dpg.set_value("txt_status", status)
@@ -392,6 +460,35 @@ class App:
 
     def _on_load(self, sender=None, app_data=None):
         dpg.show_item("file_dialog")
+
+    def _on_export_preset(self, sender=None, app_data=None):
+        dpg.show_item("preset_export_dialog")
+
+    def _on_import_preset(self, sender=None, app_data=None):
+        dpg.show_item("preset_import_dialog")
+
+    def _on_preset_export_selected(self, sender, app_data):
+        path = self._extract_dialog_path(app_data)
+        if not path:
+            return
+        try:
+            export_preset(self._prefs, path)
+            self._active_preset_name = Path(path).stem
+            self._toast(f"Preset exported: {self._active_preset_name}")
+        except Exception as exc:
+            self._toast(f"Preset export failed: {exc}")
+
+    def _on_preset_import_selected(self, sender, app_data):
+        path = self._extract_dialog_path(app_data)
+        if not path:
+            return
+        try:
+            imported = import_preset(path)
+            self._apply_imported_preset(imported)
+            self._active_preset_name = Path(path).stem
+            self._toast(f"Preset imported: {self._active_preset_name}")
+        except Exception as exc:
+            self._toast(f"Preset import failed: {exc}")
 
     def _on_file_selected(self, sender, app_data):
         if not app_data:

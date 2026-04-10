@@ -8,25 +8,21 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
-from importlib import metadata
 from pathlib import Path
 from typing import Callable
 
 from config import Preferences
+from version import APP_VERSION
 
 CURRENT_SCHEMA_VERSION = 1
 PRESET_FILE_EXTENSION = ".json"
-_DEFAULT_APP_VERSION = "0.0.0"
 
 MigrationFn = Callable[[dict], dict]
 
 
 def _resolve_app_version() -> str:
-    """Best-effort app version resolver with a stable fallback."""
-    try:
-        return metadata.version("Auralprint_2")
-    except metadata.PackageNotFoundError:
-        return _DEFAULT_APP_VERSION
+    """Return the user-visible application version."""
+    return APP_VERSION
 
 
 def _validate_preset_path(path: str) -> Path:

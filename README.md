@@ -50,7 +50,7 @@ Space (pause sim), H (toggle panels), R (reset visuals), N/P (tracks), arrows (s
 **v0.3.0 — Preferences System**
 Immutable defaults + mutable preferences + resolved settings. All parameters bounded by limits. Deep clone, deep freeze.
 
-**v0.3.1 — Preset Serialization**
+**v0.3.1 — Preset Serialization** ✅ CURRENT
 Export/import JSON preset files. Schema versioning with migration support.
 
 **v0.3.2 — Full Config UI**

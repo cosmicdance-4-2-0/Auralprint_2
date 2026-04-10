@@ -11,8 +11,8 @@ Interface (stable):
 import threading
 
 import numpy as np
-import soundfile as sf
 import dearpygui.dearpygui as dpg
+from audio_decode import try_decode_audio
 
 PEAK_BUCKETS = 512
 SCRUBBER_HEIGHT = 36
@@ -31,6 +31,7 @@ class Scrubber:
     def __init__(self):
         self._peaks = None              # float32 array of normalized peak values
         self._status = "empty"          # "empty" | "decoding" | "ready" | "unavailable"
+        self._decode_failure = None
         self._decode_token = 0
         self._width = 0
         self._height = 0
@@ -61,6 +62,7 @@ class Scrubber:
         """Start asynchronous waveform decode. Non-blocking — playback starts immediately."""
         token = self._next_token()
         self._peaks = None
+        self._decode_failure = None
         self._status = "decoding"
 
         thread = threading.Thread(
@@ -74,6 +76,7 @@ class Scrubber:
         """Clear waveform data. Called on queue clear or app teardown."""
         self._next_token()  # invalidate any in-flight decode
         self._peaks = None
+        self._decode_failure = None
         self._status = "empty"
 
     def draw(self, position, duration):
@@ -90,16 +93,17 @@ class Scrubber:
 
     def _decode_worker(self, filepath, token):
         """Background thread: read audio file and compute peak buckets."""
-        try:
-            data, sr = sf.read(filepath, dtype="float32", always_2d=True)
-        except Exception:
+        decoded, failure = try_decode_audio(filepath)
+        if decoded is None:
             if self._decode_token == token:
                 self._peaks = None
+                self._decode_failure = failure
                 self._status = "unavailable"
             return
 
         if self._decode_token != token:
             return
+        data = decoded.samples
 
         # Mix to mono and compute peaks
         if data.shape[1] > 1:
@@ -121,6 +125,7 @@ class Scrubber:
             return
 
         self._peaks = peaks
+        self._decode_failure = None
         self._status = "ready"
 
     # ── Mouse interaction ─────────────────────────────────────
@@ -246,10 +251,16 @@ class Scrubber:
             suffix = " \u2022 decoding waveform"
         elif self._status == "unavailable":
             suffix = " \u2022 waveform unavailable"
+            if self._decode_failure is not None:
+                suffix = f" \u2022 decode failed ({self._decode_failure.backend}: {self._decode_failure.code})"
         elif self._status == "empty" and duration <= 0:
             suffix = " \u2022 no track loaded"
 
         dpg.set_value(self._time_tag, f"{pos_str} / {dur_str}{suffix}")
+
+    @property
+    def decode_failure(self):
+        return self._decode_failure
 
 
 def _format_time(seconds):

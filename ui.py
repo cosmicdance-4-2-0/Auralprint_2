@@ -9,15 +9,14 @@ import time
 import numpy as np
 import dearpygui.dearpygui as dpg
 
-from orb import RMS_GAIN
-from overlay import compute_overlay, advance_phase, OVERLAY_PHASE_MODE
+from overlay import compute_overlay, advance_phase
 from colors import (
     make_particle_color_fn, pick_line_color, dominant_color_from,
     PARTICLE_COLOR_MODE, LINE_COLOR_MODE, FIXED_PARTICLE_COLOR,
 )
 from scrubber import Scrubber
 from playlist import Queue
-from config import Preferences, CONFIG, resolve
+from config import Preferences, resolve
 
 VIEWPORT_TITLE = "Auralprint2"
 VIEWPORT_WIDTH = 1280
@@ -29,15 +28,8 @@ ALL_EXTENSIONS = "All (*.*){.*}"
 FILE_DIALOG_WIDTH = 700
 FILE_DIALOG_HEIGHT = 400
 
-SEEK_STEP_SEC = 5
-SEEK_STEP_LARGE_SEC = 30
-VOLUME_STEP = 0.05
-
 SCRUBBER_WIDTH = 1100
 QUEUE_PANEL_HEIGHT = 200
-
-# Toast duration in seconds
-TOAST_DURATION_SEC = 2.5
 
 # Grave/backtick key constant — varies across DearPyGui versions
 _KEY_GRAVE = getattr(dpg, "mvKey_Grave", getattr(dpg, "mvKey_GraveAccent", None))
@@ -70,14 +62,33 @@ class App:
 
         # Configuration system
         self._prefs = Preferences()
-        self._repeat_mode = self._prefs.get("audio.repeat_mode")
+        self._settings = resolve(self._prefs)
+        self._repeat_mode = self._settings["audio"]["repeat_mode"]
 
         # Toast message: (text, expire_time)
         self._toast_text = ""
         self._toast_expire = 0.0
 
+        self._apply_resolved_settings()
+
         # Wire end-of-track callback
         self._audio.on_track_ended = self._on_track_ended
+
+    def _apply_resolved_settings(self):
+        """Push the currently-resolved settings into dependent modules."""
+        if hasattr(self._audio, "update_settings"):
+            self._audio.update_settings(self._settings["audio"])
+
+        for orb in self._orbs:
+            if hasattr(orb, "update_settings"):
+                orb.update_settings(self._settings)
+
+    def load_preferences(self, initial):
+        """Load a preference snapshot (for example from a preset) and apply it."""
+        self._prefs = Preferences(initial=initial)
+        self._settings = resolve(self._prefs)
+        self._repeat_mode = self._settings["audio"]["repeat_mode"]
+        self._apply_resolved_settings()
 
     def run(self):
         """Build the UI and enter the main loop. Blocks until window closes."""
@@ -194,7 +205,7 @@ class App:
     def _toast(self, msg):
         """Show a brief message in the status line."""
         self._toast_text = msg
-        self._toast_expire = time.perf_counter() + TOAST_DURATION_SEC
+        self._toast_expire = time.perf_counter() + self._settings["ui"]["toast_duration_sec"]
 
     def _active_toast(self):
         """Return the current toast text if still active, else empty string."""
@@ -261,14 +272,14 @@ class App:
         # Overlay ring phase
         orb_angle = self._orbs[0].angle if self._orbs else 0.0
         self._ring_phase = advance_phase(
-            self._ring_phase, dt, OVERLAY_PHASE_MODE, orb_angle
+            self._ring_phase, dt, orb_angle, self._settings["bands"]["overlay"]
         )
 
         # Compute overlay ring
         overlay_frame = compute_overlay(
             band_result, self._ring_phase, channel_waveforms["C"],
             self._canvas.width, self._canvas.height,
-            self._canvas.background_color,
+            self._canvas.background_color, self._settings["bands"]["overlay"],
         )
 
         # Step each orb (unless sim is paused)
@@ -276,7 +287,7 @@ class App:
         orb_frames = []
         for orb in self._orbs:
             if not self._sim_paused:
-                energy = min(channel_rms[orb.channel] * RMS_GAIN, 1.0)
+                energy = min(channel_rms[orb.channel] * self._settings["audio"]["rms_gain"], 1.0)
                 waveform = channel_waveforms[orb.channel]
                 orb.step(dt, now_sec, energy, color_fn, waveform)
 
@@ -552,13 +563,13 @@ class App:
 
         # Right arrow: seek forward
         if key == dpg.mvKey_Right and self._audio.is_loaded:
-            step = SEEK_STEP_LARGE_SEC if shift else SEEK_STEP_SEC
+            step = self._settings["ui"]["seek_step_large_sec"] if shift else self._settings["ui"]["seek_step_sec"]
             self._audio.seek(self._audio.position + step)
             return
 
         # Left arrow: seek backward
         if key == dpg.mvKey_Left and self._audio.is_loaded:
-            step = SEEK_STEP_LARGE_SEC if shift else SEEK_STEP_SEC
+            step = self._settings["ui"]["seek_step_large_sec"] if shift else self._settings["ui"]["seek_step_sec"]
             self._audio.seek(self._audio.position - step)
             return
 
@@ -566,13 +577,13 @@ class App:
 
         # Up arrow: volume up
         if key == dpg.mvKey_Up:
-            self._audio.volume = min(1.0, self._audio.volume + VOLUME_STEP)
+            self._audio.volume = min(1.0, self._audio.volume + self._settings["ui"]["volume_step"])
             self._sync_volume_ui()
             return
 
         # Down arrow: volume down
         if key == dpg.mvKey_Down:
-            self._audio.volume = max(0.0, self._audio.volume - VOLUME_STEP)
+            self._audio.volume = max(0.0, self._audio.volume - self._settings["ui"]["volume_step"])
             self._sync_volume_ui()
             return
 

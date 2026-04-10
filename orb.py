@@ -14,21 +14,35 @@ import numpy as np
 
 TAU = math.pi * 2
 
-# Simulation defaults (become configurable in v0.3.x)
-ANGULAR_SPEED = math.pi * 0.75       # rad/s
-MIN_RADIUS_FRAC = 0.01
-MAX_RADIUS_FRAC = 0.80
-RMS_GAIN = 2.0
-WF_DISP_FRAC = 0.18                  # waveform displacement as fraction of base radius
-EMIT_RATE = 180                       # particles per second
-SIZE_MAX_PX = 8.0
-SIZE_MIN_PX = 1.0
-SIZE_DECAY_SEC = 3.0
-TTL_SEC = 6.0
-OVERLAP_RADIUS_PX = 6.0
-TRAIL_LINE_COUNT = 10
-TRAIL_ALPHA = 0.35
-MAX_DT = 1.0 / 30                    # cap to prevent huge jumps
+# Simulation defaults (fallbacks when explicit settings are not provided)
+DEFAULT_ORB_SETTINGS = {
+    "motion": {
+        "angular_speed": math.pi * 0.75,       # rad/s
+        "wf_disp_frac": 0.18,                  # waveform displacement as fraction of base radius
+    },
+    "audio": {
+        "min_radius_frac": 0.01,
+        "max_radius_frac": 0.80,
+        "rms_gain": 2.0,
+    },
+    "particles": {
+        "emit_per_second": 180,
+        "size_max_px": 8.0,
+        "size_min_px": 1.0,
+        "size_decay_sec": 3.0,
+        "ttl_sec": 6.0,
+        "overlap_radius_px": 6.0,
+    },
+    "trace": {
+        "num_lines": 10,
+        "line_alpha": 0.35,
+    },
+    "timing": {
+        "max_dt": 1.0 / 30,                    # cap to prevent huge jumps
+    },
+}
+
+RMS_GAIN = DEFAULT_ORB_SETTINGS["audio"]["rms_gain"]
 
 
 # ── Render snapshot ────────────────────────────────────────────
@@ -97,7 +111,7 @@ def _sample_waveform(waveform, angle_rad):
 class Orb:
 
     def __init__(self, canvas_width, canvas_height,
-                 channel="C", chirality=-1, start_angle=0.0):
+                 channel="C", chirality=-1, start_angle=0.0, settings=None):
         """Create an orb.
 
         Args:
@@ -112,9 +126,9 @@ class Orb:
 
         self._center_x = canvas_width / 2.0
         self._center_y = canvas_height / 2.0
-        min_dim = min(canvas_width, canvas_height)
-        self._min_radius = min_dim * MIN_RADIUS_FRAC
-        self._max_radius = min_dim * MAX_RADIUS_FRAC
+        self._min_dim = min(canvas_width, canvas_height)
+        self._settings = {}
+        self._apply_settings(settings)
 
         self._angle = start_angle
         self._radius = self._min_radius
@@ -123,6 +137,33 @@ class Orb:
 
         self._particles = []
         self._emit_accum = 0.0
+
+    def _apply_settings(self, settings):
+        merged = DEFAULT_ORB_SETTINGS
+        s = settings or {}
+        self._settings = {
+            "angular_speed": s.get("motion", {}).get("angular_speed", merged["motion"]["angular_speed"]),
+            "wf_disp_frac": s.get("motion", {}).get("wf_disp_frac", merged["motion"]["wf_disp_frac"]),
+            "min_radius_frac": s.get("audio", {}).get("min_radius_frac", merged["audio"]["min_radius_frac"]),
+            "max_radius_frac": s.get("audio", {}).get("max_radius_frac", merged["audio"]["max_radius_frac"]),
+            "emit_per_second": s.get("particles", {}).get("emit_per_second", merged["particles"]["emit_per_second"]),
+            "size_max_px": s.get("particles", {}).get("size_max_px", merged["particles"]["size_max_px"]),
+            "size_min_px": s.get("particles", {}).get("size_min_px", merged["particles"]["size_min_px"]),
+            "size_decay_sec": s.get("particles", {}).get("size_decay_sec", merged["particles"]["size_decay_sec"]),
+            "ttl_sec": s.get("particles", {}).get("ttl_sec", merged["particles"]["ttl_sec"]),
+            "overlap_radius_px": s.get("particles", {}).get("overlap_radius_px", merged["particles"]["overlap_radius_px"]),
+            "trail_line_count": s.get("trace", {}).get("num_lines", merged["trace"]["num_lines"]),
+            "trail_alpha": s.get("trace", {}).get("line_alpha", merged["trace"]["line_alpha"]),
+            "max_dt": s.get("timing", {}).get("max_dt", merged["timing"]["max_dt"]),
+        }
+
+        min_r = self._min_dim * self._settings["min_radius_frac"]
+        max_r = self._min_dim * self._settings["max_radius_frac"]
+        self._min_radius = min(min_r, max_r)
+        self._max_radius = max(min_r, max_r)
+
+    def update_settings(self, settings):
+        self._apply_settings(settings)
 
     # ── Interface ──────────────────────────────────────────────
 
@@ -149,10 +190,11 @@ class Orb:
             waveform:  float32 1-D array of time-domain samples for radial
                        displacement, or None. Should be the orb's own channel.
         """
-        dt = min(dt, MAX_DT)
+        max_dt = self._settings["max_dt"]
+        dt = min(dt, max_dt)
 
         # Advance orbit
-        self._angle = (self._angle + self._chirality * ANGULAR_SPEED * dt) % TAU
+        self._angle = (self._angle + self._chirality * self._settings["angular_speed"] * dt) % TAU
 
         # Base radius from energy
         e = max(0.0, min(energy, 1.0))
@@ -163,7 +205,7 @@ class Orb:
         # so the orb breathes outward on positive samples and inward on negative.
         if waveform is not None and len(waveform) > 0:
             sample = _sample_waveform(waveform, self._angle)
-            displacement = base_radius * WF_DISP_FRAC * sample
+            displacement = base_radius * self._settings["wf_disp_frac"] * sample
         else:
             displacement = 0.0
 
@@ -174,12 +216,13 @@ class Orb:
         self._y = self._radius * math.sin(self._angle)
 
         # Cull expired particles
-        cutoff = now_sec - TTL_SEC
+        cutoff = now_sec - self._settings["ttl_sec"]
         self._particles = [p for p in self._particles if p.born_sec > cutoff]
 
         # Emit new particles (color determined by angle at birth)
-        self._emit_accum += EMIT_RATE * dt
-        max_emit = int(EMIT_RATE * MAX_DT) + 2
+        emit_rate = self._settings["emit_per_second"]
+        self._emit_accum += emit_rate * dt
+        max_emit = int(emit_rate * max_dt) + 2
         emitted = 0
         while self._emit_accum >= 1.0 and emitted < max_emit:
             cr, cg, cb = color_fn(self._angle)
@@ -207,23 +250,26 @@ class Orb:
         ps = np.empty(count, dtype=np.float32)
 
         bg_r, bg_g, bg_b = bg_color
-        fade_dur = max(TTL_SEC - SIZE_DECAY_SEC, 0.001)
+        size_decay_sec = self._settings["size_decay_sec"]
+        size_max_px = self._settings["size_max_px"]
+        size_min_px = self._settings["size_min_px"]
+        fade_dur = max(self._settings["ttl_sec"] - size_decay_sec, 0.001)
 
         for idx, p in enumerate(self._particles):
             age = now_sec - p.born_sec
 
             # Size: shrink from max to min over the decay period
-            if age < SIZE_DECAY_SEC:
-                t = age / SIZE_DECAY_SEC
-                size = SIZE_MAX_PX + (SIZE_MIN_PX - SIZE_MAX_PX) * t
+            if age < size_decay_sec:
+                t = age / size_decay_sec
+                size = size_max_px + (size_min_px - size_max_px) * t
             else:
-                size = SIZE_MIN_PX
+                size = size_min_px
 
             # Color: birth color during decay, then fade toward background
-            if age < SIZE_DECAY_SEC:
+            if age < size_decay_sec:
                 cr, cg, cb = p.r, p.g, p.b
             else:
-                t = min((age - SIZE_DECAY_SEC) / fade_dur, 1.0)
+                t = min((age - size_decay_sec) / fade_dur, 1.0)
                 cr = p.r + (bg_r - p.r) * t
                 cg = p.g + (bg_g - p.g) * t
                 cb = p.b + (bg_b - p.b) * t
@@ -237,14 +283,14 @@ class Orb:
             ps[idx] = size
 
         # Trail: last N+1 particle positions
-        trail_n = min(count, TRAIL_LINE_COUNT + 1)
+        trail_n = min(count, int(self._settings["trail_line_count"]) + 1)
         trail_start = count - trail_n
         tx = px[trail_start:].copy()
         ty = py[trail_start:].copy()
 
         # Trail color: pre-blend with background at trail alpha
         lr, lg, lb = line_color
-        a = TRAIL_ALPHA
+        a = self._settings["trail_alpha"]
         tr = bg_r * (1.0 - a) + lr * a
         tg = bg_g * (1.0 - a) + lg * a
         tb = bg_b * (1.0 - a) + lb * a
@@ -268,7 +314,8 @@ class Orb:
 
     def _emit_at(self, x, y, now_sec, cr, cg, cb):
         """Spawn a particle, removing any within the overlap radius."""
-        r2 = OVERLAP_RADIUS_PX * OVERLAP_RADIUS_PX
+        overlap_radius_px = self._settings["overlap_radius_px"]
+        r2 = overlap_radius_px * overlap_radius_px
         self._particles = [
             p for p in self._particles
             if (p.x - x) ** 2 + (p.y - y) ** 2 > r2

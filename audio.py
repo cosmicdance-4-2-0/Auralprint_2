@@ -18,16 +18,17 @@ import numpy as np
 import soundfile as sf
 import sounddevice as sd
 
-RING_BUFFER_SIZE = 8192
+DEFAULT_AUDIO_SETTINGS = {
+    "ring_buffer_size": 8192,
+    "volume": 1.0,
+    "muted": False,
+    "mono_silence_rms": 0.002,
+    "mono_correlation_threshold": 0.995,
+    "mono_correlation_stride": 8,
+}
 
-VOLUME_DEFAULT = 1.0
 VOLUME_MIN = 0.0
 VOLUME_MAX = 1.0
-
-# Mono detection thresholds
-MONO_SILENCE_RMS = 0.002
-MONO_CORRELATION_THRESHOLD = 0.995
-MONO_CORRELATION_STRIDE = 8
 
 
 # ── Channel samples result ─────────────────────────────────────
@@ -96,13 +97,17 @@ class _RingBuffer:
 # ── Mono detection ─────────────────────────────────────────────
 
 
-def _detect_stereo(left, right):
+def _detect_stereo(left, right, settings):
     """Return True if the signal is stereo, False if mono-ish or silent."""
+    mono_silence_rms = settings["mono_silence_rms"]
+    mono_correlation_stride = settings["mono_correlation_stride"]
+    mono_correlation_threshold = settings["mono_correlation_threshold"]
+
     rms_r = float(np.sqrt(np.mean(right * right)))
-    if rms_r < MONO_SILENCE_RMS:
+    if rms_r < mono_silence_rms:
         return False
 
-    stride = MONO_CORRELATION_STRIDE
+    stride = max(1, int(mono_correlation_stride))
     l = left[::stride]
     r = right[::stride]
 
@@ -113,7 +118,7 @@ def _detect_stereo(left, right):
     denom = np.sqrt(max(float(dot_ll * dot_rr), 1e-12))
     correlation = float(dot_lr) / denom
 
-    return correlation < MONO_CORRELATION_THRESHOLD
+    return correlation < mono_correlation_threshold
 
 
 # ── Audio engine ───────────────────────────────────────────────
@@ -121,7 +126,19 @@ def _detect_stereo(left, right):
 
 class AudioEngine:
 
-    def __init__(self):
+    def __init__(self, settings=None):
+        cfg = dict(DEFAULT_AUDIO_SETTINGS)
+        if settings is not None:
+            cfg.update({
+                "ring_buffer_size": settings.get("ring_buffer_size", cfg["ring_buffer_size"]),
+                "volume": settings.get("volume", cfg["volume"]),
+                "muted": settings.get("muted", cfg["muted"]),
+                "mono_silence_rms": settings.get("mono_silence_rms", cfg["mono_silence_rms"]),
+                "mono_correlation_threshold": settings.get("mono_correlation_threshold", cfg["mono_correlation_threshold"]),
+                "mono_correlation_stride": settings.get("mono_correlation_stride", cfg["mono_correlation_stride"]),
+            })
+
+        self._settings = cfg
         self._data = None
         self._samplerate = 0
         self._channels = 0
@@ -131,16 +148,37 @@ class AudioEngine:
         self._lock = threading.Lock()
         self._filename = ""
 
-        self._volume = VOLUME_DEFAULT
-        self._muted = False
+        self._volume = cfg["volume"]
+        self._muted = bool(cfg["muted"])
         self._ended_flag = False     # set by callback, consumed by main thread
 
-        self._ring_l = _RingBuffer(RING_BUFFER_SIZE)
-        self._ring_r = _RingBuffer(RING_BUFFER_SIZE)
-        self._ring_c = _RingBuffer(RING_BUFFER_SIZE)
+        ring_buffer_size = int(cfg["ring_buffer_size"])
+        self._ring_l = _RingBuffer(ring_buffer_size)
+        self._ring_r = _RingBuffer(ring_buffer_size)
+        self._ring_c = _RingBuffer(ring_buffer_size)
 
         # User-assignable callback, called from poll_events() on main thread
         self.on_track_ended = None
+
+    def update_settings(self, settings):
+        """Update configurable audio settings at runtime."""
+        self._settings.update({
+            "ring_buffer_size": settings.get("ring_buffer_size", self._settings["ring_buffer_size"]),
+            "volume": settings.get("volume", self._settings["volume"]),
+            "muted": settings.get("muted", self._settings["muted"]),
+            "mono_silence_rms": settings.get("mono_silence_rms", self._settings["mono_silence_rms"]),
+            "mono_correlation_threshold": settings.get("mono_correlation_threshold", self._settings["mono_correlation_threshold"]),
+            "mono_correlation_stride": settings.get("mono_correlation_stride", self._settings["mono_correlation_stride"]),
+        })
+
+        requested_size = int(self._settings["ring_buffer_size"])
+        if requested_size != self._ring_l.size:
+            self._ring_l = _RingBuffer(requested_size)
+            self._ring_r = _RingBuffer(requested_size)
+            self._ring_c = _RingBuffer(requested_size)
+
+        self.volume = self._settings["volume"]
+        self.muted = self._settings["muted"]
 
     # ── Interface ──────────────────────────────────────────────
 
@@ -231,7 +269,7 @@ class AudioEngine:
         if left is None or right is None or center_raw is None:
             return None
 
-        is_stereo = _detect_stereo(left, right)
+        is_stereo = _detect_stereo(left, right, self._settings)
         center = center_raw if is_stereo else left.copy()
 
         return ChannelSamples(left, right, center, is_stereo)

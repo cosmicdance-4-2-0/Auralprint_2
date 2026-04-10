@@ -130,6 +130,21 @@ def migrate_preset(doc: dict) -> dict:
     return working_doc
 
 
+def _apply_tree_with_constraints(prefs: Preferences, tree: dict, prefix: str = "") -> None:
+    """Apply a nested preference tree using Preferences.set for clamping/constraints."""
+    for key, value in tree.items():
+        path = f"{prefix}.{key}" if prefix else key
+        if isinstance(value, dict):
+            _apply_tree_with_constraints(prefs, value, path)
+        else:
+            try:
+                prefs.set(path, value)
+            except KeyError:
+                # Ignore unknown keys for forward compatibility with future exports.
+                continue
+
+
+
 def import_preset(path: str) -> dict:
     """Import a preset file and return a normalized preferences payload."""
     preset_path = _validate_preset_path(path)
@@ -143,5 +158,7 @@ def import_preset(path: str) -> dict:
         raise ValueError(f"Failed to parse preset JSON from '{path}': {exc.msg}") from exc
 
     migrated_envelope = migrate_preset(envelope)
-    normalized = Preferences(initial=migrated_envelope["preferences"]).snapshot()
-    return normalized
+
+    normalized_prefs = Preferences()
+    _apply_tree_with_constraints(normalized_prefs, migrated_envelope["preferences"])
+    return normalized_prefs.snapshot()

@@ -10,12 +10,15 @@ from datetime import datetime, timezone
 import json
 from importlib import metadata
 from pathlib import Path
+from typing import Callable
 
 from config import Preferences
 
-PRESET_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 1
 PRESET_FILE_EXTENSION = ".json"
 _DEFAULT_APP_VERSION = "0.0.0"
+
+MigrationFn = Callable[[dict], dict]
 
 
 def _resolve_app_version() -> str:
@@ -47,7 +50,7 @@ def export_preset(prefs: Preferences, path: str) -> None:
     preset_path = _validate_preset_path(path)
 
     envelope = {
-        "schema_version": PRESET_SCHEMA_VERSION,
+        "schema_version": CURRENT_SCHEMA_VERSION,
         "app_version": _resolve_app_version(),
         "created_at": _utc_iso8601_now(),
         "preferences": prefs.snapshot(),
@@ -59,6 +62,72 @@ def export_preset(prefs: Preferences, path: str) -> None:
             handle.write("\n")
     except OSError as exc:
         raise OSError(f"Failed to write preset file '{path}': {exc}") from exc
+
+
+def _migrate_v1_to_v2(doc: dict) -> dict:
+    raise ValueError(
+        "Preset schema migration from version 1 to 2 is not implemented yet. "
+        "Please upgrade Auralprint_2 to a version that supports this migration."
+    )
+
+
+MIGRATIONS: dict[int, MigrationFn] = {
+    # 1: _migrate_v1_to_v2,  # Example registration when schema v2 exists.
+}
+
+
+def validate_preset_document(doc: dict) -> None:
+    """Validate preset envelope shape and required fields."""
+    if not isinstance(doc, dict):
+        raise ValueError("Preset payload must be a JSON object.")
+
+    required_fields = ("schema_version", "app_version", "created_at", "preferences")
+    missing_fields = [field for field in required_fields if field not in doc]
+    if missing_fields:
+        raise ValueError(f"Preset is missing required fields: {', '.join(missing_fields)}")
+
+    schema_version = doc["schema_version"]
+    if not isinstance(schema_version, int):
+        raise ValueError("Preset 'schema_version' must be an integer.")
+    if schema_version < 1:
+        raise ValueError("Preset 'schema_version' must be >= 1.")
+
+    if not isinstance(doc["app_version"], str) or not doc["app_version"].strip():
+        raise ValueError("Preset 'app_version' must be a non-empty string.")
+    if not isinstance(doc["created_at"], str) or not doc["created_at"].strip():
+        raise ValueError("Preset 'created_at' must be a non-empty string.")
+    if not isinstance(doc["preferences"], dict):
+        raise ValueError("Preset 'preferences' must be a JSON object.")
+
+
+def migrate_preset(doc: dict) -> dict:
+    """Migrate a preset document to CURRENT_SCHEMA_VERSION."""
+    validate_preset_document(doc)
+
+    working_doc = dict(doc)
+    version = working_doc["schema_version"]
+    if version > CURRENT_SCHEMA_VERSION:
+        raise ValueError(
+            "Unsupported preset schema_version "
+            f"{version}; this app supports up to {CURRENT_SCHEMA_VERSION}."
+        )
+
+    while version < CURRENT_SCHEMA_VERSION:
+        migration = MIGRATIONS.get(version)
+        if migration is None:
+            raise ValueError(
+                f"No migration registered for preset schema_version {version} -> {version + 1}."
+            )
+        migrated = migration(working_doc)
+        if not isinstance(migrated, dict):
+            raise ValueError(
+                f"Migration for schema_version {version} must return a JSON object envelope."
+            )
+        validate_preset_document(migrated)
+        working_doc = migrated
+        version = working_doc["schema_version"]
+
+    return working_doc
 
 
 def import_preset(path: str) -> dict:
@@ -73,17 +142,6 @@ def import_preset(path: str) -> dict:
     except json.JSONDecodeError as exc:
         raise ValueError(f"Failed to parse preset JSON from '{path}': {exc.msg}") from exc
 
-    if not isinstance(envelope, dict):
-        raise ValueError("Preset payload must be a JSON object.")
-
-    required_fields = ("schema_version", "app_version", "created_at", "preferences")
-    missing_fields = [field for field in required_fields if field not in envelope]
-    if missing_fields:
-        raise ValueError(f"Preset is missing required fields: {', '.join(missing_fields)}")
-
-    preferences_payload = envelope["preferences"]
-    if not isinstance(preferences_payload, dict):
-        raise ValueError("Preset 'preferences' must be a JSON object.")
-
-    normalized = Preferences(initial=preferences_payload).snapshot()
+    migrated_envelope = migrate_preset(envelope)
+    normalized = Preferences(initial=migrated_envelope["preferences"]).snapshot()
     return normalized
